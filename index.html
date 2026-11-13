@@ -9,7 +9,7 @@
 <style>
 :root{--bg:#0d0d0f;--panel:#16161a;--line:#2a2a30;--acc:#00ffcc;--amber:#ffb000;--hot:#ff0055;--txt:#e1e1e6;--dim:#7a7a85}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
-body{background:var(--bg);color:var(--txt);font:14px/1.3 "Courier New",monospace;padding:max(10px,env(safe-area-inset-top)) 10px 130px;touch-action:manipulation}
+body{background:var(--bg);color:var(--txt);font:14px/1.3 "Courier New",monospace;padding:max(10px,env(safe-area-inset-top)) 10px 160px;touch-action:manipulation}
 html{touch-action:manipulation}
 header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
 .hist{margin-left:auto;display:flex;gap:6px}
@@ -78,11 +78,16 @@ input[type=range]{width:70px;flex:none;accent-color:var(--acc)}
 .led{width:10px;height:10px;border-radius:50%;background:#2a2a30;flex:none}
 .led.on{background:#3dff7a;box-shadow:0 0 8px #3dff7a}
 .nav{display:flex;gap:6px;align-items:center}
+.sm.vis{background:#a23cff;border-color:#c77dff;color:#fff}
+.rr .st.on{background:var(--acc);border-color:var(--acc)}
+.rr .st.acc{background:var(--amber);border-color:var(--amber)}
+.st.dbl{background:linear-gradient(90deg,var(--acc) 0 42%,#0b6 42% 58%,var(--acc) 58%)}
+input[type=number]{-webkit-user-select:text;user-select:text}
 #err{display:none;position:fixed;left:8px;right:8px;bottom:96px;background:#400014;border:1px solid var(--hot);border-radius:8px;padding:10px;color:#fff;font-size:12px;z-index:9;-webkit-user-select:text;user-select:text}
 </style>
 </head>
 <body>
-<header><h1>ZOundPad n0u</h1><span class="ver" id="ver"></span><div class="hist"><button id="undo" disabled>↶ Undo</button><button id="redo" disabled>Redo ↷</button></div></header>
+<header><h1>ZOundPad n0u</h1><span class="ver" id="ver"></span></header>
 
 <div class="bar">
   <button id="play" class="play">▶ Play</button>
@@ -91,13 +96,14 @@ input[type=range]{width:70px;flex:none;accent-color:var(--acc)}
   <div class="grp"><label>Master volume</label><input id="mv" type="range" min="0" max="1" step="0.01" value="0.8"></div>
   <div class="grp"><label>Editing section</label>
     <div class="inline"><select id="secSel"></select><span class="dim" id="secCount"></span><button id="addSec" title="New empty section">+ New</button><button id="copySec" title="Copy this section to memory">Copy</button><button id="pasteSec" title="Paste the copied pattern into the section you are editing" disabled>Paste</button></div><span class="dim" id="clipInfo">nothing copied</span></div>
+  <div class="grp"><label>Song</label><button id="songBtn">Save / Load</button></div>
   <div class="grp"><label>Now playing</label><span class="lcd" id="pos">stopped</span></div>
 </div>
 
 <div class="add"><button id="add808">+ TR-808</button><button id="add909">+ TR-909</button><button data-syn="lead">+ Lead</button><button data-syn="bass">+ Bass</button><button data-syn="pad">+ Pad</button><button data-syn="keys">+ E-Piano</button></div>
 <div id="rack"></div>
 <div class="mach"><div class="mh"><b class="mt">Keyboard</b><span class="dim">plays</span><select id="kbTarget"></select><button class="sm" id="octDn">− Oct</button><span class="lcd" id="octLbl" style="min-width:56px;padding:6px">C3</span><button class="sm" id="octUp">Oct +</button></div><div id="keys"></div></div>
-<div id="dock"><button id="bPlay" class="tb" title="Play">▶</button><button id="bPause" class="tb" title="Pause">❚❚</button><button id="bStop" class="tb" title="Stop">■</button><button id="bRec" class="tb" disabled title="Rec MIDI: coming in v1.08">●</button><div id="posD"></div><div id="lights"></div><div class="nav"><button id="vPrev" class="sm">◀</button><span id="navLbl" class="dim"></span><button id="vNext" class="sm">▶</button></div></div>
+<div id="dock"><button id="bPlay" class="tb" title="Play">▶</button><button id="bPause" class="tb" title="Pause">❚❚</button><button id="bStop" class="tb" title="Stop">■</button><button id="bRec" class="tb" disabled title="Rec MIDI: coming in v1.08">●</button><div id="posD"></div><div id="lights"></div><div class="nav"><button id="vPrev" class="sm">◀</button><span id="navLbl" class="dim"></span><button id="vNext" class="sm">▶</button></div><button id="audioRst" class="sm" title="Re-initialize audio output (use after plugging in a speaker)">↻ Audio</button><div class="hist"><button id="undo" disabled>↶ Undo</button><button id="redo" disabled>Redo ↷</button></div></div>
 <div id="toast"></div>
 <div id="err"></div>
 
@@ -105,7 +111,7 @@ input[type=range]{width:70px;flex:none;accent-color:var(--acc)}
 /* ZOundPad n0u
    Engine: lookahead scheduler (audio clock), per-machine channel strip -> master -> compressor.
    Drum voices are synthesized here (no samples, no third-party code). */
-const VERSION = 'v1.07';
+const VERSION = 'v1.08';
 const $ = s => document.querySelector(s);
 function showErr(m){ const b = $('#err'); b.textContent = '⚠ ' + m; b.style.display = 'block'; }
 window.addEventListener('error', e => showErr(e.message + ' (line ' + (e.lineno||'?') + ')'));
@@ -124,7 +130,9 @@ function initAudio(){
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint:'interactive' });
     master = ctx.createGain(); master.gain.value = S.mv;
     const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -10; comp.ratio.value = 4;
-    master.connect(comp); comp.connect(ctx.destination);
+    const lim = ctx.createDynamicsCompressor(); lim.threshold.value = -2; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = 0.002; lim.release.value = 0.1;
+    master.connect(comp); comp.connect(lim); lim.connect(ctx.destination);
+    ctx.onstatechange = () => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); };
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate*3, ctx.sampleRate);
     const d = noiseBuf.getChannelData(0); for (let i=0;i<d.length;i++) d[i] = Math.random()*2-1;
     S.machines.concat(S.synths).forEach(ensureOut);
@@ -212,16 +220,19 @@ function scheduleStep(t){
   const sec = S.sections[S.section];
   S.machines.forEach(m => {
     const pat = sec[m.id]; if (!pat || m.mute) return;
-    VOICES.forEach(([k]) => { const x = pat[k][S.step]; if (x) trigger(m,k,x===2?1:0.65,t); });
+    VOICES.forEach(([k]) => { const x = pat[k][S.step]; if (x){ trigger(m,k,x===2?1:0.65,t); if (x===3) trigger(m,k,0.55,t+stepDur()/2); } });
   });
   S.synths.forEach(y => {
     const nn = sec[y.id]; if (!nn || y.mute) return;
     nn.forEach(n => { if (n.s === S.step) synthNote(y,n.p,t,n.l*stepDur()*0.98,n.a?1:0.7); });
   });
-  queue.push({ step:S.step, section:S.section, t });
+  queue.push({ step:S.step, section:S.section, t }); if (queue.length > 64) queue.shift();
   if (++S.step >= STEPS){ S.step = 0; S.section = (S.section+1) % S.sections.length; }
 }
-function tick(){ while (nextT < ctx.currentTime + 0.12){ scheduleStep(nextT); nextT += stepDur(); } }
+function tick(){
+  if (nextT < ctx.currentTime - 0.05) nextT = ctx.currentTime + 0.05; /* after a stall, skip missed steps instead of firing them all at once */
+  while (nextT < ctx.currentTime + 0.12){ scheduleStep(nextT); nextT += stepDur(); }
+}
 function syncTransport(){
   $('#bPlay').classList.toggle('on',S.playing); $('#play').classList.toggle('on',S.playing);
   $('#play').textContent = S.playing ? '■ Stop' : '▶ Play';
@@ -349,7 +360,7 @@ function applyPreset(m,pr){
   commit();
   const p = S.sections[S.view][m.id];
   VOICES.forEach(([k]) => {
-    if (pr.pat && Array.isArray(pr.pat[k])) for (let i=0;i<STEPS;i++){ const x = pr.pat[k][i]; p[k][i] = (x===1||x===2) ? x : 0; }
+    if (pr.pat && Array.isArray(pr.pat[k])) for (let i=0;i<STEPS;i++){ const x = pr.pat[k][i]; p[k][i] = (x===1||x===2||x===3) ? x : 0; }
     if (pr.vv && typeof pr.vv[k]==='number') m.vv[k] = Math.min(1,Math.max(0,pr.vv[k]));
   });
   render(); toast('Loaded "' + pr.name + '"');
@@ -409,7 +420,7 @@ function h(tag,cls,txt){ const e = document.createElement(tag); if (cls) e.class
 function range(min,max,val,fn,cls){ const r = document.createElement('input'); r.type = 'range'; r.min = min; r.max = max; r.step = 0.01; r.value = val; if (cls) r.className = cls; r.oninput = () => fn(parseFloat(r.value)); return r; }
 function paint(m,k,i){
   const p = S.sections[S.view][m.id][k], c = m.cells[k];
-  (i==null ? c.map((_,j) => j) : [i]).forEach(j => { c[j].classList.toggle('on',p[j]===1); c[j].classList.toggle('acc',p[j]===2); });
+  (i==null ? c.map((_,j) => j) : [i]).forEach(j => { c[j].classList.toggle('on',p[j]===1||p[j]===3); c[j].classList.toggle('acc',p[j]===2); c[j].classList.toggle('dbl',p[j]===3); });
 }
 function refreshSections(){
   const s = $('#secSel'); s.innerHTML = '';
@@ -422,17 +433,22 @@ function render(){
     m.cells = {};
     const box = h('div','mach'), hd = h('div','mh');
     m.led = h('span','led');
-    const tg = h('button','sm',m.collapsed ? '▸ Show' : '▾ Hide'); tg.onclick = () => { m.collapsed = !m.collapsed; render(); };
+    const tg = h('button','sm vis',m.collapsed ? '▸ Show' : '▾ Hide'); tg.onclick = () => { m.collapsed = !m.collapsed; render(); };
     hd.append(tg,m.led,h('b','mt','TR-' + m.kit + ' #' + m.n));
     const mute = h('button','sm' + (m.mute?' red':''),'Mute');
     mute.onclick = () => { m.mute = !m.mute; mute.classList.toggle('red',m.mute); if (m.out) m.out.gain.value = m.mute ? 0 : m.vol; };
     const clr = h('button','sm','Clear');
     clr.onclick = () => { commit(); const p = S.sections[S.view][m.id]; VOICES.forEach(([k]) => { p[k].fill(0); if (m.cells[k]) paint(m,k); }); };
+    const rb = [8,16,32].map(n => {
+      const b = h('button','sm rollb' + (S.rollArm===n ? ' sel' : ''),'Roll ' + n);
+      b.onclick = () => { S.rollArm = S.rollArm===n ? 0 : n; document.querySelectorAll('.rollb').forEach(x => x.classList.toggle('sel',!!S.rollArm && x.textContent==='Roll ' + S.rollArm)); if (S.rollArm) toast('Now tap the snare row'); };
+      return b;
+    });
     const sv = h('button','sm','Save preset'); sv.onclick = () => savePreset(m);
     const ld = h('button','sm','Load preset'); ld.onclick = () => openLoad(m);
     const del = h('button','sm','Remove');
     del.onclick = () => { commit(); if (m.out) m.out.disconnect(); S.machines = S.machines.filter(x => x!==m); S.sections.forEach(s => delete s[m.id]); render(); };
-    hd.append(mute,clr,sv,ld,del,h('span','dim','Vol'),range(0,1,m.vol,v => { m.vol = v; if (m.out && !m.mute) m.out.gain.value = v; }));
+    hd.append(mute,clr,...rb,sv,ld,del,h('span','dim','Vol'),range(0,1,m.vol,v => { m.vol = v; if (m.out && !m.mute) m.out.gain.value = v; }));
     box.append(hd);
     (m.collapsed ? [] : VOICES).forEach(([k,label]) => {
       const row = h('div','row'), lb = h('button','lb',label), g = h('div','steps');
@@ -440,7 +456,7 @@ function render(){
       m.cells[k] = [];
       for (let i=0;i<STEPS;i++){
         const b = h('div','st' + (i%4===0 && i ? ' g4' : ''));
-        b.onpointerdown = e => { e.preventDefault(); commit(); const p = S.sections[S.view][m.id][k]; p[i] = (p[i]+1)%3; paint(m,k,i); };
+        b.onpointerdown = e => { e.preventDefault(); if (k==='snare' && S.rollArm){ applyRoll(m); return; } commit(); const p = S.sections[S.view][m.id][k]; p[i] = (p[i]+1)%3; paint(m,k,i); };
         g.append(b); m.cells[k].push(b);
       }
       row.append(lb,g,range(0,1,m.vv[k],v => { m.vv[k] = v; },'vv'));
@@ -469,7 +485,7 @@ function addSynth(pk){
 }
 function voiceOn(y,p,t,vel){
   ensureOut(y);
-  const f = 440*Math.pow(2,(p-69)/12), g = gn(0), flt = mk('lowpass',y.cut,1.2), mix = gn(y.det ? 0.5 : 1), os = [], peak = 0.26*vel;
+  const f = 440*Math.pow(2,(p-69)/12), g = gn(0), flt = mk('lowpass',y.cut,1.2), mix = gn(y.det ? 0.5 : 1), os = [], peak = 0.18*vel;
   const add = (type,fr,det) => { const o = ctx.createOscillator(); o.type = type; o.frequency.value = fr; o.detune.value = det; o.start(t); o.connect(mix); os.push(o); };
   if (y.det){ add(y.wave,f,-y.det); add(y.wave,f,y.det); } else add(y.wave,f,0);
   if (y.sub) add('sine',f/2,0);
@@ -481,22 +497,23 @@ function voiceOn(y,p,t,vel){
 function synthNote(y,p,t,dur,vel){ voiceOn(y,p,t,vel)(t+dur); }
 
 /* ---------- piano roll ---------- */
+const ext = n => Math.max(1,Math.ceil(n.l));
 function paintRoll(y){
   for (const p in y.cells) y.cells[p].forEach(c => c.classList.remove('on','acc','cont'));
   S.sections[S.view][y.id].forEach(n => {
-    for (let j=n.s; j<n.s+n.l && j<STEPS; j++){
+    for (let j=n.s; j<n.s+ext(n) && j<STEPS; j++){
       const c = y.cells[n.p] && y.cells[n.p][j];
       if (c){ c.classList.add(n.a ? 'acc' : 'on'); if (j > n.s) c.classList.add('cont'); }
     }
   });
 }
 function rollTap(y,p,i){
-  const notes = S.sections[S.view][y.id], ix = notes.findIndex(n => n.p===p && i>=n.s && i<n.s+n.l);
+  const notes = S.sections[S.view][y.id], ix = notes.findIndex(n => n.p===p && i>=n.s && i<n.s+ext(n));
   commit();
   if (ix >= 0){ const n = notes[ix]; if (!n.a) n.a = 1; else notes.splice(ix,1); }
   else {
     const l = Math.min(y.len,STEPS-i);
-    for (let j=notes.length-1;j>=0;j--){ const n = notes[j]; if (n.p===p && n.s<i+l && n.s+n.l>i) notes.splice(j,1); }
+    for (let j=notes.length-1;j>=0;j--){ const n = notes[j]; if (n.p===p && n.s<i+Math.max(1,Math.ceil(l)) && n.s+ext(n)>i) notes.splice(j,1); }
     notes.push({ s:i, p, l, a:0 });
     initAudio(); voiceOn(y,p,ctx.currentTime+0.005,0.8)(ctx.currentTime+0.25);
   }
@@ -506,7 +523,7 @@ function synthPanel(rack,y){
   const box = h('div','mach'), hd = h('div','mh'); y.cells = {};
   y.led = h('span','led'); y.cnt = h('span','dim','');
   y.upd = () => { y.cnt.textContent = S.sections[S.view][y.id].length + ' notes'; }; y.upd();
-  const tg = h('button','sm' + (y.showRoll?' sel':''),y.showRoll ? 'Hide roll' : 'Show roll'); tg.onclick = () => { y.showRoll = !y.showRoll; render(); };
+  const tg = h('button','sm vis',y.showRoll ? 'Hide roll' : 'Show roll'); tg.onclick = () => { y.showRoll = !y.showRoll; render(); };
   const ps = document.createElement('select');
   Object.keys(PRE).forEach(k => { const o = h('option',null,PRE[k].name); o.value = k; ps.append(o); }); ps.value = y.preset;
   ps.onchange = () => { Object.assign(y,PRE[ps.value],{ preset:ps.value }); render(); };
@@ -525,12 +542,15 @@ function synthPanel(rack,y){
   add('Vol',0,1,y.vol,v => { y.vol = v; if (y.out && !y.mute) y.out.gain.value = v; });
   box.append(sl);
   if (y.showRoll){
-    const lens = h('div','inline'), lr = h('div','mh');
-    [[1,'1/16'],[2,'1/8'],[4,'1/4'],[8,'1/2'],[16,'1 bar']].forEach(([L,lab]) => {
-      const b = h('button','sm' + (y.len===L?' sel':''),lab);
-      b.onclick = () => { y.len = L; [...lens.children].forEach(c => c.classList.toggle('sel',c===b)); }; lens.append(b);
+    const lens = h('div','inline'), lr = h('div','mh'), btns = [];
+    const cust = document.createElement('input'); cust.type = 'number'; cust.min = 1; cust.max = 16; cust.step = 1; cust.inputMode = 'numeric'; cust.placeholder = '3–15'; cust.style.width = '74px';
+    const mark = () => { btns.forEach(([b,L]) => b.classList.toggle('sel',L===y.len)); cust.value = [1,2,4,8,16,0.5,0.25,0.125].includes(y.len) ? '' : y.len; };
+    [[1,'1'],[2,'2'],[4,'4'],[8,'8'],[16,'16'],[0.5,'1/2'],[0.25,'1/4'],[0.125,'1/8']].forEach(([L,lab]) => {
+      const b = h('button','sm',lab); b.onclick = () => { y.len = L; mark(); }; lens.append(b); btns.push([b,L]);
     });
-    lr.append(h('span','dim','Length of new notes'),lens); box.append(lr);
+    cust.onchange = () => { const v = Math.round(parseFloat(cust.value)); if (v >= 1 && v <= 16) y.len = v; mark(); };
+    lens.append(cust); mark();
+    lr.append(h('span','dim','Length of new notes (steps)'),lens); box.append(lr);
     const roll = h('div','roll');
     for (let p=PHI;p>=PLO;p--){
       const row = h('div','rr'), isB = [1,3,6,8,10].includes(p%12), lb = h('button','rl' + (isB?' blk':''),noteName(p));
@@ -600,6 +620,92 @@ $('#bPlay').onclick = play; $('#bPause').onclick = pause; $('#bStop').onclick = 
 $('#vPrev').onclick = () => { if (S.view > 0){ S.view--; render(); } };
 $('#vNext').onclick = () => { if (S.view < S.sections.length-1){ S.view++; render(); } };
 
+/* ---------- audio safety ---------- */
+function relHeld(id){ const v = held.get(id); if (!v) return; v.rel(ctx.currentTime); v.el.classList.remove('down'); held.delete(id); }
+document.addEventListener('pointerup',e => relHeld(e.pointerId),true);
+document.addEventListener('pointercancel',e => relHeld(e.pointerId),true);
+window.addEventListener('blur',() => [...held.keys()].forEach(relHeld));
+document.addEventListener('pointerdown',() => { if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); },true);
+document.addEventListener('visibilitychange',() => { if (document.hidden) [...held.keys()].forEach(relHeld); else if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {}); });
+function resetAudio(){
+  const was = S.playing; if (was) pause();
+  [...held.keys()].forEach(relHeld);
+  try { if (ctx) ctx.close(); } catch(e){}
+  ctx = null; master = null; S.machines.concat(S.synths).forEach(x => { x.out = null; x.oh = null; });
+  initAudio(); toast('Audio reset'); if (was) play();
+}
+$('#audioRst').onclick = resetAudio;
+
+/* ---------- snare roll ---------- */
+function applyRoll(m){
+  const n = S.rollArm, p = S.sections[S.view][m.id].snare; commit();
+  for (let i=0;i<STEPS;i++) p[i] = n===8 ? (i%2===0 ? 1 : 0) : n===16 ? 1 : 3;
+  paint(m,'snare'); S.rollArm = 0; document.querySelectorAll('.rollb').forEach(x => x.classList.remove('sel')); toast('Snare roll x' + n);
+}
+
+/* ---------- songs: save / load / autosave ---------- */
+const SONGS_KEY = 'n0u.songs', AUTO_KEY = 'n0u.auto';
+const jGet = k => { try { return JSON.parse(localStorage.getItem(k)) || []; } catch(e){ return []; } };
+const jSet = (k,a) => { try { localStorage.setItem(k,JSON.stringify(a)); return true; } catch(e){ showErr('Could not save: ' + e.message); return false; } };
+function songData(name){ const o = JSON.parse(snap()); o.app = 'n0u'; o.type = 'song'; o.name = name || 'Untitled'; o.bpm = S.bpm; o.mv = S.mv; o.v = VERSION; return o; }
+function loadSong(o){
+  if (!o || o.type !== 'song' || !Array.isArray(o.sections) || !Array.isArray(o.machines)) throw new Error('Not a ZOundPad song');
+  if (S.playing || S.paused) stop();
+  S.machines.concat(S.synths).forEach(x => { if (x.out) x.out.disconnect(); });
+  S.machines = o.machines.map(d => Object.assign({ out:null, oh:null, cells:{} }, d));
+  S.synths = (o.synths || []).map(d => Object.assign({ out:null, cells:{} }, d));
+  S.sections = o.sections.length ? o.sections : [{}];
+  S.sections.forEach(sec => { S.machines.forEach(m => { if (!sec[m.id]) sec[m.id] = emptyPat(); }); S.synths.forEach(y => { if (!sec[y.id]) sec[y.id] = []; }); });
+  S.view = Math.min(o.view || 0,S.sections.length-1); S.count = o.count || {};
+  S.nextId = o.nextId || Math.max(0,...S.machines.map(m => m.id),...S.synths.map(y => y.id)) + 1;
+  setBpm(o.bpm || 120); S.mv = o.mv == null ? 0.8 : o.mv; $('#mv').value = S.mv; if (master) master.gain.value = S.mv;
+  H.undo = []; H.redo = []; S.clip = null; $('#pasteSec').disabled = true; $('#clipInfo').textContent = 'nothing copied';
+  if (ctx) S.machines.concat(S.synths).forEach(ensureOut);
+  render(); syncHist();
+}
+function downloadJSON(o,ext){
+  const b = new Blob([JSON.stringify(o)],{ type:'application/json' }), u = URL.createObjectURL(b), a = document.createElement('a');
+  a.href = u; a.download = (o.name || 'song').replace(/[^\w\-]+/g,'_') + ext; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u),2000);
+}
+function openSongs(){
+  const ov = h('div','ov'), box = h('div','modal'), list = h('div','plist'), close = () => ov.remove();
+  ov.onclick = e => { if (e.target===ov) close(); };
+  const nm = document.createElement('input'); nm.type = 'text'; nm.maxLength = 40; nm.placeholder = 'Song name';
+  const sv = h('button','play','Save'), sx = h('button',null,'Save + export file'), r1 = h('div','prow');
+  const doSave = exp => {
+    const name = nm.value.trim() || 'Song ' + (jGet(SONGS_KEY).length+1), a = jGet(SONGS_KEY), o = songData(name), i = a.findIndex(x => x.name === name);
+    if (i >= 0) a[i] = o; else a.push(o);
+    if (jSet(SONGS_KEY,a)){ if (exp) downloadJSON(o,'.n0usong.json'); toast('Saved "' + name + '"'); close(); }
+  };
+  sv.onclick = () => doSave(false); sx.onclick = () => doSave(true); r1.append(sv,sx);
+  box.append(h('b',null,'Songs'),nm,r1,h('span','dim','Saving with an existing name replaces that song. Your work is also autosaved every few seconds.'));
+  const a = jGet(SONGS_KEY);
+  if (!a.length) list.append(h('div','dim','No saved songs yet.'));
+  a.forEach((o,i) => {
+    const r = h('div','prow'), ld = h('button','pl',o.name + '  (' + (o.bpm || '?') + ' BPM, ' + (o.sections ? o.sections.length : '?') + ' sec)');
+    ld.onclick = () => { if (confirm('Load "' + o.name + '"? The current song will be replaced.')){ try { loadSong(o); close(); toast('Loaded "' + o.name + '"'); } catch(e){ showErr(e.message); } } };
+    const ex = h('button','sm','Export'); ex.onclick = () => downloadJSON(o,'.n0usong.json');
+    const dl = h('button','sm','Delete'); dl.onclick = () => { if (confirm('Delete "' + o.name + '"?')){ const b = jGet(SONGS_KEY); b.splice(i,1); jSet(SONGS_KEY,b); close(); openSongs(); } };
+    r.append(ld,ex,dl); list.append(r);
+  });
+  const imp = document.createElement('input'); imp.type = 'file'; imp.accept = '.json,application/json'; imp.style.display = 'none';
+  imp.onchange = async () => {
+    try {
+      const f = imp.files[0]; if (!f) return;
+      const items = [].concat(JSON.parse(await f.text())).filter(x => x && x.type === 'song' && Array.isArray(x.sections));
+      if (!items.length) throw new Error('This file has no song');
+      const b = jGet(SONGS_KEY); items.forEach(x => { const i = b.findIndex(y => y.name === x.name); if (i >= 0) b[i] = x; else b.push(x); });
+      jSet(SONGS_KEY,b); close(); openSongs(); toast('Imported ' + items.length);
+    } catch(e){ showErr('Import failed: ' + e.message); }
+  };
+  const ib = h('button',null,'Import from Files…'); ib.onclick = () => imp.click();
+  const nw = h('button',null,'New song');
+  nw.onclick = () => { if (confirm('Start a new empty song? (Save the current one first if you want to keep it.)')){ loadSong({ type:'song', sections:[{}], machines:[], synths:[] }); addMachine('909'); render(); close(); } };
+  const cb = h('button',null,'Close'); cb.onclick = close; const r2 = h('div','prow'); r2.append(ib,nw,cb);
+  box.append(list,r2,imp); ov.append(box); document.body.append(ov);
+}
+$('#songBtn').onclick = openSongs;
+
 /* ---------- wiring ---------- */
 function setBpm(v){ S.bpm = Math.min(240,Math.max(40,Math.round(v)||120)); $('#bpm').value = S.bpm; }
 $('#play').onclick = togglePlay;
@@ -625,6 +731,9 @@ S.sections[0][y0.id] = [{s:2,p:36,l:1,a:0},{s:6,p:36,l:1,a:0},{s:10,p:36,l:1,a:1
 render();
 requestAnimationFrame(draw);
 syncHist(); buildLights(); setPos(1,0); syncTransport();
+try { const a = localStorage.getItem(AUTO_KEY); if (a){ loadSong(JSON.parse(a)); toast('Restored your last session'); } }
+catch(e){ showErr('Could not restore last session: ' + e.message); try { localStorage.setItem(AUTO_KEY + '.bak',localStorage.getItem(AUTO_KEY)); } catch(e2){} }
+setInterval(() => { try { localStorage.setItem(AUTO_KEY,JSON.stringify(songData('autosave'))); } catch(e){} },4000);
 </script>
 </body>
 </html>
