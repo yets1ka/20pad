@@ -91,11 +91,18 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 .st.selc{box-shadow:inset 0 0 0 3px #fff}
 .mach.selmode{touch-action:none}
 .st.anc{outline:2px dashed #ffc800;outline-offset:-2px}
+#songName{margin-left:auto;font-size:16px;color:#ffc800;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.pads{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:540px;margin:8px 0}
+.pad{min-height:64px;border-radius:10px;background:#2b2b33;border:1px solid #44444f;color:var(--txt);font-size:15px;position:relative;touch-action:none}
+.pad i{position:absolute;left:8px;bottom:5px;font-style:normal;font-size:10px;color:var(--dim)}
+.pad.empty{opacity:.45}
+.pad.down{background:var(--acc);color:#001a14}
+.rl.rlw{width:96px}
 #err{display:none;position:fixed;left:8px;right:8px;bottom:96px;background:#400014;border:1px solid var(--hot);border-radius:8px;padding:10px;color:#fff;font-size:12px;z-index:9;-webkit-user-select:text;user-select:text}
 </style>
 </head>
 <body>
-<header><h1>ZOundPad n0u</h1><span class="ver" id="ver"></span></header>
+<header><h1>ZOundPad n0u</h1><span class="ver" id="ver"></span><span id="songName"></span></header>
 
 <div class="bar">
   <button id="play" class="play">▶ Play</button>
@@ -119,7 +126,7 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 /* ZOundPad n0u
    Engine: lookahead scheduler (audio clock), per-machine channel strip -> master -> compressor.
    Drum voices are synthesized here (no samples, no third-party code). */
-const VERSION = 'v1.11';
+const VERSION = 'v1.12';
 const $ = s => document.querySelector(s);
 function showErr(m){ const b = $('#err'); b.textContent = '⚠ ' + m; b.style.display = 'block'; }
 window.addEventListener('error', e => showErr(e.message + ' (line ' + (e.lineno||'?') + ')'));
@@ -128,7 +135,7 @@ $('#ver').textContent = VERSION;
 
 const VOICES = [['kick','KICK'],['snare','SNARE'],['clap','CLAP'],['rim','RIMSHOT'],['chh','CLOSED HAT'],['ohh','OPEN HAT'],['ltom','LOW TOM'],['mtom','MID TOM'],['htom','HI TOM'],['crash','CRASH']];
 const STEPS = 16;
-const S = { bpm:120, mv:0.8, playing:false, section:0, step:0, view:0, machines:[], synths:[], sections:[], nextId:1, count:{} };
+const S = { bpm:120, mv:0.8, playing:false, section:0, step:0, view:0, name:'Untitled Song', dirty:false, machines:[], synths:[], sections:[], nextId:1, count:{} };
 let ctx, master, noiseBuf;
 const SOFT = (() => { const c = new Float32Array(1024); for (let i=0;i<1024;i++) c[i] = Math.tanh(2*(i/512-1)); return c; })();
 const CURVE = (() => { const c = new Float32Array(256); for (let i=0;i<256;i++){ c[i] = Math.tanh((i/128-1)*2.2); } return c; })();
@@ -243,7 +250,7 @@ function scheduleStep(t){
   });
   S.synths.forEach(y => {
     const nn = sec[y.id]; if (!nn || y.mute) return;
-    nn.forEach(n => { if (n.s === S.step) synthNote(y,n.p,t,n.l*stepDur()*0.98,n.a?1:0.7); });
+    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordNotes(y,n.p).forEach(q => synthNote(y,q,t,d,v*0.55)); else synthNote(y,n.p,t,d,v); } });
   });
   queue.push({ step:S.step, section:S.section, t }); if (queue.length > 64) queue.shift();
   if (++S.step >= STEPS){ S.step = 0; S.section = (S.section+1) % S.sections.length; }
@@ -309,7 +316,7 @@ function snap(){
     synths:S.synths.map(y => Object.assign({},y,{ out:undefined, cells:undefined, led:undefined, cnt:undefined, upd:undefined, sel:undefined, selBtn:undefined, selCnt:undefined })),
     machines:S.machines.map(m => ({ id:m.id, kit:m.kit, n:m.n, vol:m.vol, mute:m.mute, vv:m.vv })) });
 }
-function commit(){ H.undo.push(snap()); if (H.undo.length > H.max) H.undo.shift(); H.redo = []; syncHist(); }
+function commit(){ H.undo.push(snap()); if (H.undo.length > H.max) H.undo.shift(); H.redo = []; syncHist(); S.dirty = true; showName(); }
 function restore(str){
   const o = JSON.parse(str), old = new Map(S.machines.map(m => [m.id,m]));
   S.machines = o.machines.map(d => {
@@ -331,8 +338,8 @@ function restore(str){
   if (S.section >= S.sections.length) S.section = 0;
   render();
 }
-function undo(){ if (!H.undo.length) return; H.redo.push(snap()); restore(H.undo.pop()); syncHist(); }
-function redo(){ if (!H.redo.length) return; H.undo.push(snap()); restore(H.redo.pop()); syncHist(); }
+function undo(){ if (!H.undo.length) return; H.redo.push(snap()); restore(H.undo.pop()); syncHist(); S.dirty = true; showName(); }
+function redo(){ if (!H.redo.length) return; H.undo.push(snap()); restore(H.redo.pop()); syncHist(); S.dirty = true; showName(); }
 function syncHist(){
   $('#undo').disabled = !H.undo.length; $('#redo').disabled = !H.redo.length;
   $('#undo').textContent = '↶ Undo' + (H.undo.length ? ' (' + H.undo.length + ')' : '');
@@ -508,7 +515,8 @@ const PRE = {
   bass:{ name:'Bass', wave:'sawtooth', det:0,  cut:500,  a:0.003, d:0.18, sus:0.55, r:0.08,fe:4,   len:1, sub:1, center:43 },
   pad: { name:'Pad',  wave:'sawtooth', det:14, cut:1500, a:0.45,  d:0.6,  sus:0.85, r:1.1, fe:0,   len:8, sub:0, center:60 },
   keys:{ name:'E-Piano', wave:'square',   det:3,  cut:2400, a:0.004, d:0.35, sus:0.3,  r:0.3, fe:1.2, len:2, sub:0, center:60 },
-  nesp:{ name:'NES Pulse',    wave:'pulse25', det:0, cut:9000, a:0.001, d:0.12, sus:0.75, r:0.04, fe:0, len:1, sub:0, center:66 }
+  nesp:{ name:'NES Pulse',    wave:'pulse25', det:0, cut:9000, a:0.001, d:0.12, sus:0.75, r:0.04, fe:0, len:1, sub:0, center:66 },
+  stab:{ name:'Stab', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.12, r:0.12, fe:2.2, len:1, sub:0, center:60 }
 };
 const PLO = 24, PHI = 72, NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const noteName = p => NAMES[p%12] + (Math.floor(p/12)-1);
@@ -582,14 +590,15 @@ function paintRoll(y){
 }
 function rollTap(y,p,i){
   if (y.selMode) return;
+  if (y.kind === 'chord' && !y.pads[p] && !S.sections[S.view][y.id].some(n => n.p===p && i>=n.s && i<n.s+ext(n))){ toast('Set this pad first (Edit pads)'); return; }
   const notes = S.sections[S.view][y.id], ix = notes.findIndex(n => n.p===p && i>=n.s && i<n.s+ext(n));
   commit();
   if (ix >= 0){ const n = notes[ix]; if (!n.a) n.a = 1; else notes.splice(ix,1); }
   else {
     const l = Math.min(y.len,STEPS-i);
-    for (let j=notes.length-1;j>=0;j--){ const n = notes[j]; if (n.p===p && n.s<i+Math.max(1,Math.ceil(l)) && n.s+ext(n)>i) notes.splice(j,1); }
+    for (let j=notes.length-1;j>=0;j--){ const n = notes[j]; if ((y.kind === 'chord' || n.p===p) && n.s<i+Math.max(1,Math.ceil(l)) && n.s+ext(n)>i) notes.splice(j,1); }
     notes.push({ s:i, p, l, a:0 });
-    initAudio(); voiceOn(y,p,ctx.currentTime+0.005,0.8)(ctx.currentTime+0.25);
+    pv(y,p,0.25);
   }
   paintRoll(y); if (y.upd) y.upd();
 }
@@ -598,7 +607,7 @@ function synthPanel(rack,y){
   if (!y.sel || y.selView !== S.view){ y.sel = new Set(); y.selView = S.view; y.anchor = null; }
   y.led = h('span','led'); y.cnt = h('span','dim','');
   y.upd = () => { y.cnt.textContent = S.sections[S.view][y.id].length + ' notes'; }; y.upd();
-  const tg = h('button','sm vis',y.showRoll ? 'Hide roll' : 'Show roll'); tg.onclick = () => { y.showRoll = !y.showRoll; render(); };
+  const tg = h('button','sm vis',y.showRoll ? (y.kind === 'chord' ? 'Hide grid' : 'Hide roll') : (y.kind === 'chord' ? 'Show grid' : 'Show roll')); tg.onclick = () => { y.showRoll = !y.showRoll; render(); };
   const ps = document.createElement('select');
   Object.keys(PRE).forEach(k => { const o = h('option',null,PRE[k].name); o.value = k; ps.append(o); }); ps.value = y.preset;
   ps.onchange = () => { Object.assign(y,PRE[ps.value],{ preset:ps.value }); render(); };
@@ -609,13 +618,14 @@ function synthPanel(rack,y){
   const clr = h('button','sm','Clear'); clr.onclick = () => { commit(); S.sections[S.view][y.id].length = 0; paintRoll(y); y.upd(); };
   const del = h('button','sm','Remove');
   del.onclick = () => { commit(); if (y.out) y.out.disconnect(); S.synths = S.synths.filter(x => x!==y); S.sections.forEach(sec => delete sec[y.id]); render(); };
-  hd.append(y.led,h('b','mt','Synth #' + y.n + ' · ' + y.name),y.cnt,tg,ps,ws,mute,clr,del); box.append(hd);
+  hd.append(y.led,h('b','mt',y.kind === 'chord' ? 'Easy Chord #' + y.n : 'Synth #' + y.n + ' · ' + y.name),y.cnt,tg,ps,ws,mute,clr,del); box.append(hd);
   const sl = h('div','mh');
   const add = (lab,min,max,val,fn) => sl.append(h('span','dim',lab),range(min,max,val,fn));
   add('Cutoff',0,1,Math.log(y.cut/150)/Math.log(60),v => { y.cut = 150*Math.pow(60,v); });
   add('Attack',0.002,1.5,y.a,v => { y.a = v; }); add('Release',0.02,2.5,y.r,v => { y.r = v; });
   add('Vol',0,1,y.vol,v => { y.vol = v; if (y.out && !y.mute) setGain(y.out,v); });
   box.append(sl);
+  if (y.kind === 'chord') box.append(chordPads(y));
   if (y.showRoll){
     const lens = h('div','inline'), lr = h('div','mh'), btns = [];
     const cust = document.createElement('input'); cust.type = 'number'; cust.min = 1; cust.max = 16; cust.step = 1; cust.inputMode = 'numeric'; cust.placeholder = '3–15'; cust.style.width = '74px';
@@ -643,9 +653,9 @@ function synthPanel(rack,y){
       roll.onpointermove = e => { if (e.buttons) hit(e); };
       roll.onpointerup = roll.onpointercancel = () => { mode = null; };
     }
-    for (let p=PHI;p>=PLO;p--){
-      const row = h('div','rr'), isB = [1,3,6,8,10].includes(p%12), lb = h('button','rl' + (isB?' blk':''),noteName(p));
-      lb.onclick = () => { initAudio(); voiceOn(y,p,ctx.currentTime+0.005,0.9)(ctx.currentTime+0.4); };
+    for (let q=0; q<=hi(y)-lo(y); q++){ const p = y.kind === 'chord' ? lo(y)+q : hi(y)-q;
+      const row = h('div','rr'), isB = y.kind !== 'chord' && [1,3,6,8,10].includes(p%12), lb = h('button','rl' + (isB?' blk':'') + (y.kind === 'chord' ? ' rlw' : ''),y.kind === 'chord' ? padName(y,p) : noteName(p));
+      lb.onclick = () => pv(y,p,0.4);
       row.append(lb); y.cells[p] = [];
       for (let i=0;i<STEPS;i++){
         const c = h('div','st' + (i%4===0 && i ? ' g4' : '') + (isB ? ' blkrow' : ''));
@@ -653,7 +663,7 @@ function synthPanel(rack,y){
       }
       roll.append(row);
     }
-    box.append(roll); rack.append(box); paintRoll(y); roll.scrollTop = Math.max(0,(PHI-(y.center||60))*28-110);
+    box.append(roll); rack.append(box); paintRoll(y); roll.scrollTop = y.kind === 'chord' ? 0 : Math.max(0,(PHI-(y.center||60))*28-110);
   } else rack.append(box);
 }
 function fillTargets(){
@@ -755,6 +765,7 @@ function loadSong(o){
   setBpm(o.bpm || 120); S.mv = o.mv == null ? 0.8 : o.mv; $('#mv').value = S.mv; if (master) master.gain.value = S.mv;
   H.undo = []; H.redo = []; S.clip = null; S.cb = null; $('#pasteSec').disabled = true; $('#clipInfo').textContent = 'nothing copied';
   if (ctx) S.machines.concat(S.synths).forEach(ensureOut);
+  S.name = (o.name && o.name !== 'autosave') ? o.name : 'Untitled Song'; S.dirty = !!o.dirty; showName();
   render(); syncHist();
 }
 function downloadJSON(o,ext){
@@ -764,12 +775,12 @@ function downloadJSON(o,ext){
 function openSongs(){
   const ov = h('div','ov'), box = h('div','modal'), list = h('div','plist'), close = () => ov.remove();
   ov.onclick = e => { if (e.target===ov) close(); };
-  const nm = document.createElement('input'); nm.type = 'text'; nm.maxLength = 40; nm.placeholder = 'Song name';
+  const nm = document.createElement('input'); nm.type = 'text'; nm.maxLength = 40; nm.placeholder = 'Song name'; nm.value = S.name === 'Untitled Song' ? '' : S.name;
   const sv = h('button','play','Save'), sx = h('button',null,'Save + export file'), r1 = h('div','prow');
   const doSave = exp => {
     const name = nm.value.trim() || 'Song ' + (jGet(SONGS_KEY).length+1), a = jGet(SONGS_KEY), o = songData(name), i = a.findIndex(x => x.name === name);
     if (i >= 0) a[i] = o; else a.push(o);
-    if (jSet(SONGS_KEY,a)){ if (exp) downloadJSON(o,'.n0usong.json'); toast('Saved "' + name + '"'); close(); }
+    if (jSet(SONGS_KEY,a)){ if (exp) downloadJSON(o,'.n0usong.json'); S.name = name; S.dirty = false; showName(); toast('Saved "' + name + '"'); close(); }
   };
   sv.onclick = () => doSave(false); sx.onclick = () => doSave(true); r1.append(sv,sx);
   box.append(h('b',null,'Songs'),nm,r1,h('span','dim','Saving with an existing name replaces that song. Your work is also autosaved every few seconds.'));
@@ -811,15 +822,15 @@ function selBar(o){
 }
 function copyNotes(y){
   const arr = S.sections[S.view][y.id].filter(n => y.sel.has(n)); if (!arr.length){ toast('Nothing selected'); return; }
-  const s0 = Math.min(...arr.map(n => n.s)), p0 = Math.min(...arr.map(n => n.p));
-  S.cb = { type:'note', items:arr.map(n => ({ ds:n.s-s0, dp:n.p-p0, l:n.l, a:n.a || 0 })) }; toast('Copied ' + arr.length + ' notes');
+  const s0 = Math.min(...arr.map(n => n.s)), p0 = Math.min(...arr.filter(n => n.s === s0).map(n => n.p));
+  S.cb = { type:y.kind === 'chord' ? 'chord' : 'note', items:arr.map(n => ({ ds:n.s-s0, dp:n.p-p0, l:n.l, a:n.a || 0 })) }; toast('Copied ' + arr.length + ' notes');
 }
 function pasteNotes(y){
-  if (!S.cb || S.cb.type !== 'note'){ toast(S.cb ? 'Clipboard holds drum steps' : 'Nothing copied'); return; }
+  const want = y.kind === 'chord' ? 'chord' : 'note'; if (!S.cb || S.cb.type !== want){ toast(S.cb ? 'Clipboard holds ' + (S.cb.type === 'drum' ? 'drum steps' : S.cb.type === 'chord' ? 'chords' : 'notes') + ', not ' + want + 's' : 'Nothing copied'); return; }
   if (!y.anchor){ toast('Select mode: tap an empty cell to choose where to paste'); return; }
   const arr = S.sections[S.view][y.id]; commit(); let skip = 0; y.sel.clear();
   S.cb.items.forEach(it => {
-    const s = y.anchor.i + it.ds, p = y.anchor.p + it.dp; if (s < 0 || s >= STEPS || p < PLO || p > PHI){ skip++; return; }
+    const s = y.anchor.i + it.ds, p = y.anchor.p + it.dp; if (s < 0 || s >= STEPS || p < lo(y) || p > hi(y)){ skip++; return; }
     const l = Math.min(it.l,STEPS-s);
     for (let j=arr.length-1;j>=0;j--){ const n = arr[j]; if (n.p===p && n.s<s+Math.max(1,Math.ceil(l)) && n.s+ext(n)>s) arr.splice(j,1); }
     const nn = { s, p, l, a:it.a }; arr.push(nn); y.sel.add(nn);
@@ -849,7 +860,7 @@ function copyDrum(m){
   const p = S.sections[S.view][m.id], its = [];
   m.sel.forEach(key => { const [k,i] = key.split(':'); const v = p[k][+i]; if (v > 0) its.push({ r:VOICES.findIndex(x => x[0]===k), s:+i, v }); });
   if (!its.length){ toast('Nothing selected'); return; }
-  const r0 = Math.min(...its.map(x => x.r)), s0 = Math.min(...its.map(x => x.s));
+  const s0 = Math.min(...its.map(x => x.s)), r0 = Math.min(...its.filter(x => x.s === s0).map(x => x.r));
   S.cb = { type:'drum', items:its.map(x => ({ dr:x.r-r0, ds:x.s-s0, v:x.v })) }; toast('Copied ' + its.length + ' steps');
 }
 function pasteDrum(m){
@@ -879,7 +890,73 @@ function openInstMenu(){
   };
   grp('Drums',[['TR-808',() => addMachine('808')],['TR-909',() => addMachine('909')]]);
   grp('Synths',[['Lead',() => addSynth('lead')],['Bass',() => addSynth('bass')],['Pad',() => addSynth('pad')],['E-Piano',() => addSynth('keys')],['NES Pulse',() => addSynth('nesp')]]);
+  grp('Chords',[['Easy Chord',() => addChord()]]);
   const cb = h('button',null,'Close'); cb.onclick = close; box.append(cb); ov.append(box); document.body.append(ov);
+}
+
+/* ---------- song name ---------- */
+function showName(){ $('#songName').textContent = S.name + (S.dirty ? ' *' : ''); }
+const autoData = () => { const o = songData(S.name); o.dirty = S.dirty; return o; };
+$('#songName').onclick = openSongs;
+
+/* ---------- Easy Chord ---------- */
+const QN = { maj:'', m:'m', '7':'7', maj7:'maj7', m7:'m7', m7b5:'m7b5', dim:'dim', aug:'aug', sus2:'sus2', sus4:'sus4', '6':'6', m6:'m6', '9':'9', maj9:'maj9', m9:'m9', add9:'add9' };
+const QI = { maj:[0,4,7], m:[0,3,7], '7':[0,4,7,10], maj7:[0,4,7,11], m7:[0,3,7,10], m7b5:[0,3,6,10], dim:[0,3,6], aug:[0,4,8], sus2:[0,2,7], sus4:[0,5,7], '6':[0,4,7,9], m6:[0,3,7,9], '9':[0,4,7,10,14], maj9:[0,4,7,11,14], m9:[0,3,7,10,14], add9:[0,4,7,14] };
+const lo = y => y.kind === 'chord' ? 0 : PLO, hi = y => y.kind === 'chord' ? 15 : PHI;
+function padName(y,i){ const c = y.pads[i]; return c ? NAMES[c.r] + QN[c.q] + (c.b >= 0 ? '/' + NAMES[c.b] : '') : '—'; }
+function chordNotes(y,i){
+  const c = y.pads && y.pads[i]; if (!c) return [];
+  const sh = 12*(y.coct || 0), base = 60 + c.r - (c.r >= 7 ? 12 : 0) + sh, out = QI[c.q].map(x => base + x);
+  if (c.b >= 0) out.push(36 + c.b + sh);
+  return out;
+}
+function pv(y,p,len){
+  initAudio(); const ps = y.kind === 'chord' ? chordNotes(y,p) : [p], v = y.kind === 'chord' ? 0.45 : 0.8;
+  ps.forEach(q => voiceOn(y,q,ctx.currentTime+0.005,v)(ctx.currentTime+len));
+}
+function fillKey(y){
+  const r = y.key || 0;
+  const maj = [[0,'maj7'],[2,'m7'],[4,'m7'],[5,'maj7'],[7,'7'],[9,'m7'],[11,'m7b5'],[0,'maj9']];
+  const min = [[0,'m7'],[2,'m7b5'],[3,'maj7'],[5,'m7'],[7,'m7'],[8,'maj7'],[10,'7'],[0,'m9']];
+  (y.mode === 'min' ? min : maj).forEach(([off,q],i) => { y.pads[i] = { r:(r+off)%12, q, b:-1 }; });
+}
+function addChord(){
+  const y = addSynth('stab'); S.count.stab--; y.n = (S.count.chord = (S.count.chord || 0) + 1);
+  y.kind = 'chord'; y.name = 'Easy Chord'; y.key = 0; y.mode = 'maj'; y.coct = 0; y.pads = new Array(16).fill(null); fillKey(y);
+  return y;
+}
+function editPad(y,i){
+  const ov = h('div','ov'), box = h('div','modal'), close = () => ov.remove(), c = y.pads[i] || { r:0, q:'maj', b:-1 };
+  ov.onclick = e => { if (e.target === ov) close(); };
+  const mkSel = (opts,val) => { const s2 = document.createElement('select'); opts.forEach(([v,l]) => { const o = h('option',null,l); o.value = v; s2.append(o); }); s2.value = val; return s2; };
+  const rs = mkSel(NAMES.map((n,k) => [k,n]),c.r), qs = mkSel(Object.keys(QI).map(k => [k,QN[k] || 'maj']),c.q), bs = mkSel([[-1,'none']].concat(NAMES.map((n,k) => [k,n])),c.b);
+  const ok = h('button','play','Set'), cl = h('button',null,'Clear pad'), cn = h('button',null,'Cancel'), bar = h('div','prow');
+  ok.onclick = () => { y.pads[i] = { r:+rs.value, q:qs.value, b:+bs.value }; render(); close(); };
+  cl.onclick = () => { commit(); y.pads[i] = null; S.sections.forEach(sec => { if (sec[y.id]) sec[y.id] = sec[y.id].filter(n => n.p !== i); }); render(); close(); };
+  cn.onclick = close; bar.append(ok,cl,cn);
+  box.append(h('b',null,'Pad ' + (i+1)),h('span','dim','Root'),rs,h('span','dim','Type'),qs,h('span','dim','Bass note (slash chord)'),bs,bar); ov.append(box); document.body.append(ov);
+}
+function chordPads(y){
+  const wrap = h('div'), ctl = h('div','mh'), grid = h('div','pads');
+  const mkSel = (opts,val,fn) => { const s2 = document.createElement('select'); opts.forEach(([v,l]) => { const o = h('option',null,l); o.value = v; s2.append(o); }); s2.value = val; s2.onchange = () => fn(s2.value); return s2; };
+  const keyS = mkSel(NAMES.map((n,k) => [k,n]),y.key || 0,v => { y.key = +v; });
+  const modeS = mkSel([['maj','Major'],['min','Minor']],y.mode || 'maj',v => { y.mode = v; });
+  const octS = mkSel([[-1,'Oct −1'],[0,'Oct 0'],[1,'Oct +1']],y.coct || 0,v => { y.coct = +v; });
+  const fill = h('button','sm','Fill pads 1–8 in key'); fill.onclick = () => { fillKey(y); render(); toast('Filled 8 chords'); };
+  const edit = h('button','sm' + (y.padEdit ? ' sel' : ''),y.padEdit ? 'Edit pads: ON' : 'Edit pads'); edit.onclick = () => { y.padEdit = !y.padEdit; render(); };
+  ctl.append(h('span','dim','Key'),keyS,modeS,fill,edit,octS);
+  for (let i=0;i<16;i++){
+    const b = h('button','pad' + (y.pads[i] ? '' : ' empty'),null); b.append(h('span',null,padName(y,i)),h('i',null,String(i+1)));
+    b.onpointerdown = e => {
+      e.preventDefault();
+      if (y.padEdit){ editPad(y,i); return; }
+      if (!y.pads[i]) return;
+      initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.45));
+      held.set(e.pointerId,{ rel:tt => rels.forEach(r => r(tt)), el:b }); b.classList.add('down');
+    };
+    grid.append(b);
+  }
+  wrap.append(ctl,grid); return wrap;
 }
 
 /* ---------- wiring ---------- */
@@ -906,10 +983,10 @@ const y0 = addSynth('bass');
 S.sections[0][y0.id] = [{s:2,p:36,l:1,a:0},{s:6,p:36,l:1,a:0},{s:10,p:36,l:1,a:1},{s:14,p:39,l:1,a:0}];
 render();
 requestAnimationFrame(draw);
-syncHist(); buildLights(); setPos(1,0); syncTransport();
+syncHist(); buildLights(); setPos(1,0); syncTransport(); showName();
 try { const a = localStorage.getItem(AUTO_KEY); if (a){ loadSong(JSON.parse(a)); toast('Restored your last session'); } }
 catch(e){ showErr('Could not restore last session: ' + e.message); try { localStorage.setItem(AUTO_KEY + '.bak',localStorage.getItem(AUTO_KEY)); } catch(e2){} }
-setInterval(() => { try { localStorage.setItem(AUTO_KEY,JSON.stringify(songData('autosave'))); } catch(e){} },8000);
+setInterval(() => { try { localStorage.setItem(AUTO_KEY,JSON.stringify(autoData())); } catch(e){} },8000);
 </script>
 </body>
 </html>
