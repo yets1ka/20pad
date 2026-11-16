@@ -98,6 +98,13 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 .pad.empty{opacity:.45}
 .pad.down{background:var(--acc);color:#001a14}
 .rl.rlw{width:96px}
+.mh input[type=range]{width:130px}
+.padrow{display:flex;gap:16px;align-items:flex-start}
+.padrow .pads{flex:1}
+.wheels{display:flex;gap:14px;margin-top:8px}
+.wheel{display:flex;flex-direction:column;align-items:center;gap:4px}
+.wtrack{position:relative;width:46px;height:150px;border-radius:23px;background:#0a0a0d;border:1px solid var(--line);touch-action:none}
+.wknob{position:absolute;left:3px;right:3px;height:26px;border-radius:13px;background:#a23cff;pointer-events:none}
 #err{display:none;position:fixed;left:8px;right:8px;bottom:96px;background:#400014;border:1px solid var(--hot);border-radius:8px;padding:10px;color:#fff;font-size:12px;z-index:9;-webkit-user-select:text;user-select:text}
 </style>
 </head>
@@ -110,15 +117,16 @@ input[type=number]{-webkit-user-select:text;user-select:text}
     <div class="inline"><button id="bm">−</button><input id="bpm" type="number" min="40" max="240" value="120"><button id="bp">+</button></div></div>
   <div class="grp"><label>Master volume</label><input id="mv" type="range" min="0" max="1" step="0.01" value="0.8"></div>
   <div class="grp"><label>Editing section</label>
-    <div class="inline"><select id="secSel"></select><span class="dim" id="secCount"></span><button id="addSec" title="New empty section">+ New</button><button id="copySec" title="Copy this section to memory">Copy</button><button id="pasteSec" title="Paste the copied pattern into the section you are editing" disabled>Paste</button></div><span class="dim" id="clipInfo">nothing copied</span></div>
+    <div class="inline"><select id="secSel"></select><span class="dim" id="secCount"></span><button id="addSec" title="New empty section">+ New Section</button><button id="copySec" title="Copy this section to memory">Copy Section</button><button id="pasteSec" title="Paste the copied pattern into the section you are editing" disabled>Paste Section</button></div><span class="dim" id="clipInfo">nothing copied</span></div>
   <div class="grp"><label>Song</label><button id="songBtn">Save / Load</button></div>
+  <div class="grp"><label>Audio</label><button id="audioRst" title="Re-initialize audio output (use after plugging in a speaker)">↻ Reset audio</button></div>
   <div class="grp"><label>Now playing</label><span class="lcd" id="pos">stopped</span></div>
 </div>
 
 <div class="add"><button id="addInst" class="play">+ Instrument</button></div>
 <div id="rack"></div>
 <div class="mach"><div class="mh"><b class="mt">Keyboard</b><span class="dim">plays</span><select id="kbTarget"></select><button class="sm" id="octDn">− Oct</button><span class="lcd" id="octLbl" style="min-width:56px;padding:6px">C3</span><button class="sm" id="octUp">Oct +</button></div><div id="keys"></div></div>
-<div id="dock"><div class="nav"><button id="vPrev" class="sm">◀</button><span id="navLbl"></span><button id="vNext" class="sm">▶</button></div><div id="lights"></div><div id="posD"></div><div class="tp"><button id="bPlay" class="tb" title="Play">▶</button><button id="bPause" class="tb" title="Pause">❚❚</button><button id="bStop" class="tb" title="Stop">■</button><button id="bRec" class="tb" disabled title="Rec MIDI: coming soon">●</button></div><button id="audioRst" class="sm" title="Re-initialize audio output (use after plugging in a speaker)">↻ Audio</button><div class="hist"><button id="undo" disabled>↶ Undo</button><button id="redo" disabled>Redo ↷</button></div></div>
+<div id="dock"><div class="nav"><button id="vPrev" class="sm">◀</button><span id="navLbl"></span><button id="vNext" class="sm">▶</button></div><div id="lights"></div><div id="posD"></div><div class="tp"><button id="bPlay" class="tb" title="Play">▶</button><button id="bPause" class="tb" title="Pause">❚❚</button><button id="bStop" class="tb" title="Stop">■</button><button id="bRec" class="tb" disabled title="Rec MIDI: coming soon">●</button></div><div class="hist"><button id="undo" disabled>↶ Undo</button><button id="redo" disabled>Redo ↷</button></div></div>
 <div id="toast"></div>
 <div id="err"></div>
 
@@ -126,7 +134,7 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 /* ZOundPad n0u
    Engine: lookahead scheduler (audio clock), per-machine channel strip -> master -> compressor.
    Drum voices are synthesized here (no samples, no third-party code). */
-const VERSION = 'v1.12';
+const VERSION = 'v1.13';
 const $ = s => document.querySelector(s);
 function showErr(m){ const b = $('#err'); b.textContent = '⚠ ' + m; b.style.display = 'block'; }
 window.addEventListener('error', e => showErr(e.message + ' (line ' + (e.lineno||'?') + ')'));
@@ -250,7 +258,7 @@ function scheduleStep(t){
   });
   S.synths.forEach(y => {
     const nn = sec[y.id]; if (!nn || y.mute) return;
-    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordNotes(y,n.p).forEach(q => synthNote(y,q,t,d,v*0.55)); else synthNote(y,n.p,t,d,v); } });
+    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordNotes(y,n.p).forEach(q => synthNote(y,q,t,d,v*0.85)); else synthNote(y,n.p,t,d,v); } });
   });
   queue.push({ step:S.step, section:S.section, t }); if (queue.length > 64) queue.shift();
   if (++S.step >= STEPS){ S.step = 0; S.section = (S.section+1) % S.sections.length; }
@@ -314,7 +322,7 @@ const H = { undo:[], redo:[], max:5 };
 function snap(){
   return JSON.stringify({ sections:S.sections, view:S.view, nextId:S.nextId, count:S.count,
     synths:S.synths.map(y => Object.assign({},y,{ out:undefined, cells:undefined, led:undefined, cnt:undefined, upd:undefined, sel:undefined, selBtn:undefined, selCnt:undefined })),
-    machines:S.machines.map(m => ({ id:m.id, kit:m.kit, n:m.n, vol:m.vol, mute:m.mute, vv:m.vv })) });
+    machines:S.machines.map(m => ({ id:m.id, kit:m.kit, n:m.n, vol:m.vol, mute:m.mute, vv:m.vv, label:m.label, color:m.color })) });
 }
 function commit(){ H.undo.push(snap()); if (H.undo.length > H.max) H.undo.shift(); H.redo = []; syncHist(); S.dirty = true; showName(); }
 function restore(str){
@@ -460,7 +468,7 @@ function render(){
     const box = h('div','mach'), hd = h('div','mh');
     m.led = h('span','led');
     const tg = h('button','sm vis',m.collapsed ? '▸ Show' : '▾ Hide'); tg.onclick = () => { m.collapsed = !m.collapsed; render(); };
-    hd.append(tg,m.led,h('b','mt','TR-' + m.kit + ' #' + m.n));
+    hd.append(tg,m.led,titleEl(m,'TR-' + m.kit + ' #' + m.n));
     const mute = h('button','sm' + (m.mute?' red':''),'Mute');
     mute.onclick = () => { m.mute = !m.mute; mute.classList.toggle('red',m.mute); if (m.out) setGain(m.out,m.mute ? 0 : m.vol); };
     const clr = h('button','sm','Clear');
@@ -474,7 +482,7 @@ function render(){
     const ld = h('button','sm','Load preset'); ld.onclick = () => openLoad(m);
     const del = h('button','sm','Remove');
     del.onclick = () => { commit(); if (m.out) m.out.disconnect(); S.machines = S.machines.filter(x => x!==m); S.sections.forEach(s => delete s[m.id]); render(); };
-    hd.append(mute,clr,...rb,sv,ld,del,h('span','dim','Vol'),range(0,1,m.vol,v => { m.vol = v; if (m.out && !m.mute) setGain(m.out,v); }));
+    hd.append(mute,clr,...rb,sv,ld,del,h('span','dim','Vol'),range(0,1.5,m.vol,v => { m.vol = v; if (m.out && !m.mute) setGain(m.out,v); }));
     box.append(hd);
     if (!m.sel || m.selView !== S.view){ m.sel = new Set(); m.selView = S.view; m.anchor = null; }
     const ss = { mode:null };
@@ -516,7 +524,7 @@ const PRE = {
   pad: { name:'Pad',  wave:'sawtooth', det:14, cut:1500, a:0.45,  d:0.6,  sus:0.85, r:1.1, fe:0,   len:8, sub:0, center:60 },
   keys:{ name:'E-Piano', wave:'square',   det:3,  cut:2400, a:0.004, d:0.35, sus:0.3,  r:0.3, fe:1.2, len:2, sub:0, center:60 },
   nesp:{ name:'NES Pulse',    wave:'pulse25', det:0, cut:9000, a:0.001, d:0.12, sus:0.75, r:0.04, fe:0, len:1, sub:0, center:66 },
-  stab:{ name:'Stab', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.12, r:0.12, fe:2.2, len:1, sub:0, center:60 }
+  stab:{ name:'Stab', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.22, r:0.12, fe:2.2, len:1, sub:0, center:60 }
 };
 const PLO = 24, PHI = 72, NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const noteName = p => NAMES[p%12] + (Math.floor(p/12)-1);
@@ -529,7 +537,7 @@ function addSynth(pk){
 function voiceOn(y,p,t,vel){
   ensureOut(y);
   const f = 440*Math.pow(2,(p-69)/12), g = gn(0), flt = mk('lowpass',y.cut,1.2), mix = gn(y.det ? 0.5 : 1), os = [], peak = 0.18*vel;
-  const add = (type,fr,det) => { const o = ctx.createOscillator(), pw = periodicFor(type); if (pw) o.setPeriodicWave(pw); else o.type = type; o.frequency.value = fr; o.detune.value = det; o.start(t); o.connect(mix); os.push(o); };
+  const add = (type,fr,det) => { const o = ctx.createOscillator(), pw = periodicFor(type); if (pw) o.setPeriodicWave(pw); else o.type = type; o.frequency.value = fr; o.detune.value = det; if (y.kind === 'chord'){ const f = fxNodes(y); f.cs.connect(o.detune); f.lg.connect(o.detune); } o.start(t); o.connect(mix); os.push(o); };
   const isN = y.wave === 'noise' || y.wave === 'noiseS';
   if (isN){ const nz = ctx.createBufferSource(); nz.buffer = lfsrBuf(y.wave === 'noiseS'); nz.loop = true; nz.playbackRate.value = Math.min(f*8/ctx.sampleRate,4); nz.start(t); nz.connect(mix); os.push(nz); }
   else if (y.det){ add(y.wave,f,-y.det); add(y.wave,f,y.det); } else add(y.wave,f,0);
@@ -618,12 +626,12 @@ function synthPanel(rack,y){
   const clr = h('button','sm','Clear'); clr.onclick = () => { commit(); S.sections[S.view][y.id].length = 0; paintRoll(y); y.upd(); };
   const del = h('button','sm','Remove');
   del.onclick = () => { commit(); if (y.out) y.out.disconnect(); S.synths = S.synths.filter(x => x!==y); S.sections.forEach(sec => delete sec[y.id]); render(); };
-  hd.append(y.led,h('b','mt',y.kind === 'chord' ? 'Easy Chord #' + y.n : 'Synth #' + y.n + ' · ' + y.name),y.cnt,tg,ps,ws,mute,clr,del); box.append(hd);
+  hd.append(y.led,titleEl(y,y.kind === 'chord' ? 'Easy Chord #' + y.n : 'Synth #' + y.n + ' · ' + y.name),y.cnt,tg,ps,ws,mute,clr,del); box.append(hd);
   const sl = h('div','mh');
   const add = (lab,min,max,val,fn) => sl.append(h('span','dim',lab),range(min,max,val,fn));
   add('Cutoff',0,1,Math.log(y.cut/150)/Math.log(60),v => { y.cut = 150*Math.pow(60,v); });
   add('Attack',0.002,1.5,y.a,v => { y.a = v; }); add('Release',0.02,2.5,y.r,v => { y.r = v; });
-  add('Vol',0,1,y.vol,v => { y.vol = v; if (y.out && !y.mute) setGain(y.out,v); });
+  add('Vol',0,1.5,y.vol,v => { y.vol = v; if (y.out && !y.mute) setGain(y.out,v); });
   box.append(sl);
   if (y.kind === 'chord') box.append(chordPads(y));
   if (y.showRoll){
@@ -668,7 +676,7 @@ function synthPanel(rack,y){
 }
 function fillTargets(){
   const s = $('#kbTarget'), cur = s.value; s.innerHTML = '';
-  S.synths.forEach(y => { const o = h('option',null,y.name + ' #' + y.n); o.value = y.id; s.append(o); });
+  S.synths.forEach(y => { const o = h('option',null,y.label || (y.name + ' #' + y.n)); o.value = y.id; s.append(o); });
   if (!S.synths.length){ const o = h('option',null,'(add a synth)'); o.value = ''; s.append(o); }
   if ([...s.options].some(o => o.value === cur)) s.value = cur;
 }
@@ -911,7 +919,7 @@ function chordNotes(y,i){
   return out;
 }
 function pv(y,p,len){
-  initAudio(); const ps = y.kind === 'chord' ? chordNotes(y,p) : [p], v = y.kind === 'chord' ? 0.45 : 0.8;
+  initAudio(); const ps = y.kind === 'chord' ? chordNotes(y,p) : [p], v = y.kind === 'chord' ? 0.65 : 0.8;
   ps.forEach(q => voiceOn(y,q,ctx.currentTime+0.005,v)(ctx.currentTime+len));
 }
 function fillKey(y){
@@ -922,7 +930,7 @@ function fillKey(y){
 }
 function addChord(){
   const y = addSynth('stab'); S.count.stab--; y.n = (S.count.chord = (S.count.chord || 0) + 1);
-  y.kind = 'chord'; y.name = 'Easy Chord'; y.key = 0; y.mode = 'maj'; y.coct = 0; y.pads = new Array(16).fill(null); fillKey(y);
+  y.kind = 'chord'; y.name = 'Easy Chord'; y.key = 0; y.mode = 'maj'; y.coct = 0; y.pads = new Array(16).fill(null); fillKey(y); y.vol = 1; if (y.out) setGain(y.out,1);
   return y;
 }
 function editPad(y,i){
@@ -951,12 +959,56 @@ function chordPads(y){
       e.preventDefault();
       if (y.padEdit){ editPad(y,i); return; }
       if (!y.pads[i]) return;
-      initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.45));
+      initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.65));
       held.set(e.pointerId,{ rel:tt => rels.forEach(r => r(tt)), el:b }); b.classList.add('down');
     };
     grid.append(b);
   }
-  wrap.append(ctl,grid); return wrap;
+  const row = h('div','padrow'), wh = h('div','wheels');
+  wh.append(wheel('Pitch',0,true,v => setBend(y,v)),wheel('Mod',y.mod || 0,false,v => setMod(y,v)));
+  row.append(grid,wh); wrap.append(ctl,row); return wrap;
+}
+
+/* ---------- instrument names / colours ---------- */
+const COLORS = ['#e1e1e6','#00ffcc','#ffc800','#ff6b6b','#ff8ad8','#b58cff','#6bb6ff','#7dff6b','#ff9f43'];
+function titleEl(x,def){
+  const b = h('b','mt',(x.label || def) + ' ✎'); if (x.color) b.style.color = x.color; b.style.cursor = 'pointer';
+  b.onclick = () => renameInst(x,def); return b;
+}
+function renameInst(x,def){
+  const ov = h('div','ov'), box = h('div','modal'), close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  const nm = document.createElement('input'); nm.type = 'text'; nm.maxLength = 24; nm.placeholder = def; nm.value = x.label || '';
+  let col = x.color || COLORS[0]; const sw = h('div','prow');
+  COLORS.forEach(c => {
+    const b = h('button','sm',' '); b.style.cssText = 'background:' + c + ';min-width:38px;height:38px;border:3px solid ' + (c === col ? '#fff' : 'transparent');
+    b.onclick = () => { col = c; [...sw.children].forEach(k => { k.style.borderColor = k === b ? '#fff' : 'transparent'; }); }; sw.append(b);
+  });
+  const ok = h('button','play','Save'), rs = h('button',null,'Reset'), cn = h('button',null,'Cancel'), bar = h('div','prow');
+  ok.onclick = () => { x.label = nm.value.trim(); x.color = col === COLORS[0] ? '' : col; S.dirty = true; showName(); render(); close(); };
+  rs.onclick = () => { x.label = ''; x.color = ''; S.dirty = true; showName(); render(); close(); };
+  cn.onclick = close; bar.append(ok,rs,cn);
+  box.append(h('b',null,'Name and colour'),nm,sw,bar); ov.append(box); document.body.append(ov); nm.focus();
+}
+
+/* ---------- pitch + mod wheels (Easy Chord) ---------- */
+function fxNodes(y){
+  if (y.fx && y.fx.ctx === ctx) return y.fx;
+  const cs = ctx.createConstantSource(); cs.offset.value = y.bend || 0; cs.start();
+  const lfo = ctx.createOscillator(); lfo.frequency.value = 5.5; const lg = gn((y.mod || 0)*80); lfo.connect(lg); lfo.start();
+  return (y.fx = { ctx, cs, lg });
+}
+function setBend(y,v,tau){ y.bend = v*200; if (ctx && y.fx && y.fx.ctx === ctx) y.fx.cs.offset.setTargetAtTime(y.bend,ctx.currentTime,tau || 0.02); }
+function setMod(y,v){ y.mod = v; if (ctx && y.fx && y.fx.ctx === ctx) y.fx.lg.gain.setTargetAtTime(v*80,ctx.currentTime,0.03); }
+function wheel(label,init,spring,fn){
+  const w = h('div','wheel'), tr = h('div','wtrack'), kn = h('div','wknob'); tr.append(kn); w.append(tr,h('span','dim',label));
+  const set = v => { kn.style.bottom = ((spring ? (v+1)/2 : v)*124) + 'px'; };
+  const upd = e => { const r = tr.getBoundingClientRect(); let f = 1 - (e.clientY - r.top)/r.height; f = Math.min(1,Math.max(0,f)); const v = spring ? f*2-1 : f; set(v); fn(v); };
+  let drag = false;
+  tr.onpointerdown = e => { e.preventDefault(); drag = true; tr.setPointerCapture(e.pointerId); upd(e); };
+  tr.onpointermove = e => { if (drag) upd(e); };
+  tr.onpointerup = tr.onpointercancel = () => { drag = false; if (spring){ set(0); fn(0); } };
+  set(init); return w;
 }
 
 /* ---------- wiring ---------- */
