@@ -105,20 +105,33 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 .wheel{display:flex;flex-direction:column;align-items:center;gap:4px}
 .wtrack{position:relative;width:46px;height:150px;border-radius:23px;background:#0a0a0d;border:1px solid var(--line);touch-action:none}
 .wknob{position:absolute;left:3px;right:3px;height:26px;border-radius:13px;background:#a23cff;pointer-events:none}
+.songbox{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:60%}
+.songbox #songName{margin-left:0;max-width:100%}
+.sbtns{display:flex;gap:6px}
+.btn-red{background:#d9363e;border-color:#ff6b73;color:#fff}
+.btn-blue{background:#2f7bff;border-color:#7fb0ff;color:#fff}
+.cream{background:#f5e6b8;border-color:#e6cf8a;color:#2a2200}
+.cream:disabled{opacity:.45}
+#navLbl{cursor:pointer;text-decoration:underline dotted}
+.secgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;overflow-y:auto;max-height:50vh}
+.secb{min-height:46px;font-size:15px}
+.secb.cur{background:#ffc800;color:#2a2200;border-color:#ffc800}
+.secb.now{box-shadow:inset 0 0 0 3px var(--hot)}
+.pad.col{background:var(--pc);color:#1a1a1f}
+.pad.col.down{background:var(--acc)}
 #err{display:none;position:fixed;left:8px;right:8px;bottom:96px;background:#400014;border:1px solid var(--hot);border-radius:8px;padding:10px;color:#fff;font-size:12px;z-index:9;-webkit-user-select:text;user-select:text}
 </style>
 </head>
 <body>
-<header><h1>ZOundPad n0u</h1><span class="ver" id="ver"></span><span id="songName"></span></header>
+<header><h1>ZOundPad n0u</h1><span class="ver" id="ver"></span><div class="songbox"><span id="songName"></span><div class="sbtns"><button id="songBtn" class="btn-red">Save / Load</button><button id="newSong" class="btn-blue">New Song</button></div></div></header>
 
 <div class="bar">
   <button id="play" class="play">▶ Play</button>
   <div class="grp"><label>Tempo (BPM)</label>
     <div class="inline"><button id="bm">−</button><input id="bpm" type="number" min="40" max="240" value="120"><button id="bp">+</button></div></div>
   <div class="grp"><label>Master volume</label><input id="mv" type="range" min="0" max="1" step="0.01" value="0.8"></div>
-  <div class="grp"><label>Editing section</label>
-    <div class="inline"><select id="secSel"></select><span class="dim" id="secCount"></span><button id="addSec" title="New empty section">+ New Section</button><button id="copySec" title="Copy this section to memory">Copy Section</button><button id="pasteSec" title="Paste the copied pattern into the section you are editing" disabled>Paste Section</button></div><span class="dim" id="clipInfo">nothing copied</span></div>
-  <div class="grp"><label>Song</label><button id="songBtn">Save / Load</button></div>
+  <div class="grp"><label>Editing section</label><div class="inline"><select id="secSel"></select><span class="dim" id="secCount"></span></div></div>
+  <div class="grp"><label>Manage Section</label><div class="inline"><button id="addSec" class="cream" title="New empty section">+ New</button><button id="copySec" class="cream" title="Copy this section to memory">Copy</button><button id="pasteSec" class="cream" title="Paste the copied pattern into the section you are editing" disabled>Paste</button></div><span class="dim" id="clipInfo">nothing copied</span></div>
   <div class="grp"><label>Audio</label><button id="audioRst" title="Re-initialize audio output (use after plugging in a speaker)">↻ Reset audio</button></div>
   <div class="grp"><label>Now playing</label><span class="lcd" id="pos">stopped</span></div>
 </div>
@@ -134,7 +147,7 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 /* ZOundPad n0u
    Engine: lookahead scheduler (audio clock), per-machine channel strip -> master -> compressor.
    Drum voices are synthesized here (no samples, no third-party code). */
-const VERSION = 'v1.13';
+const VERSION = 'v1.14';
 const $ = s => document.querySelector(s);
 function showErr(m){ const b = $('#err'); b.textContent = '⚠ ' + m; b.style.display = 'block'; }
 window.addEventListener('error', e => showErr(e.message + ' (line ' + (e.lineno||'?') + ')'));
@@ -258,7 +271,7 @@ function scheduleStep(t){
   });
   S.synths.forEach(y => {
     const nn = sec[y.id]; if (!nn || y.mute) return;
-    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordNotes(y,n.p).forEach(q => synthNote(y,q,t,d,v*0.85)); else synthNote(y,n.p,t,d,v); } });
+    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordNotes(y,n.p).forEach(q => synthNote(y,q,t,d,v*1.3)); else synthNote(y,n.p,t,d,v); } });
   });
   queue.push({ step:S.step, section:S.section, t }); if (queue.length > 64) queue.shift();
   if (++S.step >= STEPS){ S.step = 0; S.section = (S.section+1) % S.sections.length; }
@@ -665,6 +678,7 @@ function synthPanel(rack,y){
       const row = h('div','rr'), isB = y.kind !== 'chord' && [1,3,6,8,10].includes(p%12), lb = h('button','rl' + (isB?' blk':'') + (y.kind === 'chord' ? ' rlw' : ''),y.kind === 'chord' ? padName(y,p) : noteName(p));
       lb.onclick = () => pv(y,p,0.4);
       row.append(lb); y.cells[p] = [];
+      if (y.kind === 'chord' && y.pads[p] && y.pads[p].col) lb.style.borderLeft = '8px solid ' + y.pads[p].col;
       for (let i=0;i<STEPS;i++){
         const c = h('div','st' + (i%4===0 && i ? ' g4' : '') + (isB ? ' blkrow' : ''));
         c._c = { p, i }; c.onclick = () => rollTap(y,p,i); row.append(c); y.cells[p].push(c);
@@ -780,7 +794,7 @@ function downloadJSON(o,ext){
   const b = new Blob([JSON.stringify(o)],{ type:'application/json' }), u = URL.createObjectURL(b), a = document.createElement('a');
   a.href = u; a.download = (o.name || 'song').replace(/[^\w\-]+/g,'_') + ext; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u),2000);
 }
-function openSongs(){
+function openSongs(after){
   const ov = h('div','ov'), box = h('div','modal'), list = h('div','plist'), close = () => ov.remove();
   ov.onclick = e => { if (e.target===ov) close(); };
   const nm = document.createElement('input'); nm.type = 'text'; nm.maxLength = 40; nm.placeholder = 'Song name'; nm.value = S.name === 'Untitled Song' ? '' : S.name;
@@ -788,10 +802,12 @@ function openSongs(){
   const doSave = exp => {
     const name = nm.value.trim() || 'Song ' + (jGet(SONGS_KEY).length+1), a = jGet(SONGS_KEY), o = songData(name), i = a.findIndex(x => x.name === name);
     if (i >= 0) a[i] = o; else a.push(o);
-    if (jSet(SONGS_KEY,a)){ if (exp) downloadJSON(o,'.n0usong.json'); S.name = name; S.dirty = false; showName(); toast('Saved "' + name + '"'); close(); }
+    if (jSet(SONGS_KEY,a)){ if (exp) downloadJSON(o,'.n0usong.json'); S.name = name; S.dirty = false; showName(); toast('Saved "' + name + '"'); close(); if (typeof after === 'function') after(); }
   };
   sv.onclick = () => doSave(false); sx.onclick = () => doSave(true); r1.append(sv,sx);
   box.append(h('b',null,'Songs'),nm,r1,h('span','dim','Saving with an existing name replaces that song. Your work is also autosaved every few seconds.'));
+  const prev = jGet(PREV_KEY)[0];
+  if (prev){ const rb = h('button',null,'Restore the song from before the last New Song'); rb.onclick = () => { if (confirm('Replace the current song with the previous one?')){ try { loadSong(prev); close(); toast('Restored'); } catch(e){ showErr(e.message); } } }; box.append(rb); }
   const a = jGet(SONGS_KEY);
   if (!a.length) list.append(h('div','dim','No saved songs yet.'));
   a.forEach((o,i) => {
@@ -812,12 +828,10 @@ function openSongs(){
     } catch(e){ showErr('Import failed: ' + e.message); }
   };
   const ib = h('button',null,'Import from Files…'); ib.onclick = () => imp.click();
-  const nw = h('button',null,'New song');
-  nw.onclick = () => { if (confirm('Start a new empty song? (Save the current one first if you want to keep it.)')){ loadSong({ type:'song', sections:[{}], machines:[], synths:[] }); addMachine('909'); render(); close(); } };
-  const cb = h('button',null,'Close'); cb.onclick = close; const r2 = h('div','prow'); r2.append(ib,nw,cb);
+    const cb = h('button',null,'Close'); cb.onclick = close; const r2 = h('div','prow'); r2.append(ib,cb);
   box.append(list,r2,imp); ov.append(box); document.body.append(ov);
 }
-$('#songBtn').onclick = openSongs;
+$('#songBtn').onclick = () => openSongs();
 
 /* ---------- select / copy / paste / delete ---------- */
 function selBar(o){
@@ -905,11 +919,11 @@ function openInstMenu(){
 /* ---------- song name ---------- */
 function showName(){ $('#songName').textContent = S.name + (S.dirty ? ' *' : ''); }
 const autoData = () => { const o = songData(S.name); o.dirty = S.dirty; return o; };
-$('#songName').onclick = openSongs;
+$('#songName').onclick = () => openSongs();
 
 /* ---------- Easy Chord ---------- */
-const QN = { maj:'', m:'m', '7':'7', maj7:'maj7', m7:'m7', m7b5:'m7b5', dim:'dim', aug:'aug', sus2:'sus2', sus4:'sus4', '6':'6', m6:'m6', '9':'9', maj9:'maj9', m9:'m9', add9:'add9' };
-const QI = { maj:[0,4,7], m:[0,3,7], '7':[0,4,7,10], maj7:[0,4,7,11], m7:[0,3,7,10], m7b5:[0,3,6,10], dim:[0,3,6], aug:[0,4,8], sus2:[0,2,7], sus4:[0,5,7], '6':[0,4,7,9], m6:[0,3,7,9], '9':[0,4,7,10,14], maj9:[0,4,7,11,14], m9:[0,3,7,10,14], add9:[0,4,7,14] };
+const QN = { maj:'', m:'m', '7':'7', maj7:'maj7', m7:'m7', m7b5:'m7b5', dim:'dim', aug:'aug', sus2:'sus2', sus4:'sus4', '7sus4':'7sus4', '7b9':'7b9', dim7:'dim7', m11:'m11', '6':'6', m6:'m6', '9':'9', maj9:'maj9', m9:'m9', add9:'add9' };
+const QI = { maj:[0,4,7], m:[0,3,7], '7':[0,4,7,10], maj7:[0,4,7,11], m7:[0,3,7,10], m7b5:[0,3,6,10], dim:[0,3,6], aug:[0,4,8], sus2:[0,2,7], sus4:[0,5,7], '7sus4':[0,5,7,10], '7b9':[0,4,7,10,13], dim7:[0,3,6,9], m11:[0,3,7,10,14,17], '6':[0,4,7,9], m6:[0,3,7,9], '9':[0,4,7,10,14], maj9:[0,4,7,11,14], m9:[0,3,7,10,14], add9:[0,4,7,14] };
 const lo = y => y.kind === 'chord' ? 0 : PLO, hi = y => y.kind === 'chord' ? 15 : PHI;
 function padName(y,i){ const c = y.pads[i]; return c ? NAMES[c.r] + QN[c.q] + (c.b >= 0 ? '/' + NAMES[c.b] : '') : '—'; }
 function chordNotes(y,i){
@@ -919,7 +933,7 @@ function chordNotes(y,i){
   return out;
 }
 function pv(y,p,len){
-  initAudio(); const ps = y.kind === 'chord' ? chordNotes(y,p) : [p], v = y.kind === 'chord' ? 0.65 : 0.8;
+  initAudio(); const ps = y.kind === 'chord' ? chordNotes(y,p) : [p], v = y.kind === 'chord' ? 0.95 : 0.8;
   ps.forEach(q => voiceOn(y,q,ctx.currentTime+0.005,v)(ctx.currentTime+len));
 }
 function fillKey(y){
@@ -938,11 +952,16 @@ function editPad(y,i){
   ov.onclick = e => { if (e.target === ov) close(); };
   const mkSel = (opts,val) => { const s2 = document.createElement('select'); opts.forEach(([v,l]) => { const o = h('option',null,l); o.value = v; s2.append(o); }); s2.value = val; return s2; };
   const rs = mkSel(NAMES.map((n,k) => [k,n]),c.r), qs = mkSel(Object.keys(QI).map(k => [k,QN[k] || 'maj']),c.q), bs = mkSel([[-1,'none']].concat(NAMES.map((n,k) => [k,n])),c.b);
+  let col = c.col || ''; const sw = h('div','prow');
+  ['',...PASTELS].forEach(cc => {
+    const b = h('button','sm',cc ? ' ' : 'none'); b.style.cssText = (cc ? 'background:' + cc + ';' : '') + 'min-width:38px;height:38px;border:3px solid ' + (cc === col ? '#fff' : 'transparent');
+    b.onclick = () => { col = cc; [...sw.children].forEach(k => { k.style.borderColor = k === b ? '#fff' : 'transparent'; }); }; sw.append(b);
+  });
   const ok = h('button','play','Set'), cl = h('button',null,'Clear pad'), cn = h('button',null,'Cancel'), bar = h('div','prow');
-  ok.onclick = () => { y.pads[i] = { r:+rs.value, q:qs.value, b:+bs.value }; render(); close(); };
+  ok.onclick = () => { y.pads[i] = { r:+rs.value, q:qs.value, b:+bs.value, col }; render(); close(); };
   cl.onclick = () => { commit(); y.pads[i] = null; S.sections.forEach(sec => { if (sec[y.id]) sec[y.id] = sec[y.id].filter(n => n.p !== i); }); render(); close(); };
   cn.onclick = close; bar.append(ok,cl,cn);
-  box.append(h('b',null,'Pad ' + (i+1)),h('span','dim','Root'),rs,h('span','dim','Type'),qs,h('span','dim','Bass note (slash chord)'),bs,bar); ov.append(box); document.body.append(ov);
+  box.append(h('b',null,'Pad ' + (i+1)),h('span','dim','Root'),rs,h('span','dim','Type'),qs,h('span','dim','Bass note (slash chord)'),bs,h('span','dim','Pad colour'),sw,bar); ov.append(box); document.body.append(ov);
 }
 function chordPads(y){
   const wrap = h('div'), ctl = h('div','mh'), grid = h('div','pads');
@@ -955,11 +974,12 @@ function chordPads(y){
   ctl.append(h('span','dim','Key'),keyS,modeS,fill,edit,octS);
   for (let i=0;i<16;i++){
     const b = h('button','pad' + (y.pads[i] ? '' : ' empty'),null); b.append(h('span',null,padName(y,i)),h('i',null,String(i+1)));
+    if (y.pads[i] && y.pads[i].col){ b.classList.add('col'); b.style.setProperty('--pc',y.pads[i].col); }
     b.onpointerdown = e => {
       e.preventDefault();
       if (y.padEdit){ editPad(y,i); return; }
       if (!y.pads[i]) return;
-      initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.65));
+      initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.95));
       held.set(e.pointerId,{ rel:tt => rels.forEach(r => r(tt)), el:b }); b.classList.add('down');
     };
     grid.append(b);
@@ -1010,6 +1030,34 @@ function wheel(label,init,spring,fn){
   tr.onpointerup = tr.onpointercancel = () => { drag = false; if (spring){ set(0); fn(0); } };
   set(init); return w;
 }
+
+/* ---------- new song / section picker ---------- */
+const PREV_KEY = 'n0u.prev';
+const PASTELS = ['#ffb3ba','#ffd1b3','#ffe9b3','#fdfdb3','#e0f5b3','#baf5b3','#b3f5d6','#b3f5f0','#b3e5ff','#b3c6ff','#c9b3ff','#e6b3ff','#ffb3f0','#ffb3d1','#d9d9d9','#f5f0e6'];
+function newSongFlow(){
+  const fresh = () => {
+    jSet(PREV_KEY,[autoData()]);
+    loadSong({ type:'song', sections:[{}], machines:[], synths:[] }); addMachine('909'); addSynth('bass');
+    S.dirty = false; showName(); render(); toast('New song');
+  };
+  if (!S.dirty){ fresh(); return; }
+  const ov = h('div','ov'), box = h('div','modal'), close = () => ov.remove();
+  box.append(h('b',null,'Save the current song first?'),h('span','dim','"' + S.name + '" has changes that are not saved.'));
+  const a = h('button','play','Save first'), b = h('button',null,"Don't save"), c = h('button',null,'Cancel'), bar = h('div','prow');
+  a.onclick = () => { close(); openSongs(fresh); }; b.onclick = () => { close(); fresh(); }; c.onclick = close;
+  bar.append(a,b,c); box.append(bar); ov.append(box); document.body.append(ov);
+}
+function openSecPicker(){
+  const ov = h('div','ov'), box = h('div','modal'), close = () => ov.remove(), g = h('div','secgrid');
+  ov.onclick = e => { if (e.target === ov) close(); };
+  S.sections.forEach((_,i) => {
+    const b = h('button','sm secb' + (i === S.view ? ' cur' : '') + (S.playing && S.shown && i === S.shown.section ? ' now' : ''),pad3(i+1));
+    b.onclick = () => { S.view = i; render(); close(); }; g.append(b);
+  });
+  const cb = h('button',null,'Close'); cb.onclick = close;
+  box.append(h('b',null,'Go to section'),h('span','dim','Yellow = editing · red outline = playing'),g,cb); ov.append(box); document.body.append(ov);
+}
+$('#newSong').onclick = newSongFlow; $('#navLbl').onclick = openSecPicker;
 
 /* ---------- wiring ---------- */
 function setBpm(v){ S.bpm = Math.min(240,Math.max(40,Math.round(v)||120)); $('#bpm').value = S.bpm; }
