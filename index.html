@@ -147,7 +147,7 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 /* ZOundPad n0u
    Engine: lookahead scheduler (audio clock), per-machine channel strip -> master -> compressor.
    Drum voices are synthesized here (no samples, no third-party code). */
-const VERSION = 'v1.14';
+const VERSION = 'v1.15';
 const $ = s => document.querySelector(s);
 function showErr(m){ const b = $('#err'); b.textContent = '⚠ ' + m; b.style.display = 'block'; }
 window.addEventListener('error', e => showErr(e.message + ' (line ' + (e.lineno||'?') + ')'));
@@ -271,7 +271,7 @@ function scheduleStep(t){
   });
   S.synths.forEach(y => {
     const nn = sec[y.id]; if (!nn || y.mute) return;
-    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordNotes(y,n.p).forEach(q => synthNote(y,q,t,d,v*1.3)); else synthNote(y,n.p,t,d,v); } });
+    nn.forEach(n => { if (n.s === S.step){ const d = n.l*stepDur()*0.98, v = n.a ? 1 : 0.7; if (y.kind === 'chord') chordEvents(y,n.p,n.l).forEach(ev => ev.notes.forEach(q => synthNote(y,q,t+ev.at*stepDur(),ev.len*stepDur()*0.98,v*1.3*ev.v))); else synthNote(y,n.p,t,d,v); } });
   });
   queue.push({ step:S.step, section:S.section, t }); if (queue.length > 64) queue.shift();
   if (++S.step >= STEPS){ S.step = 0; S.section = (S.section+1) % S.sections.length; }
@@ -537,7 +537,7 @@ const PRE = {
   pad: { name:'Pad',  wave:'sawtooth', det:14, cut:1500, a:0.45,  d:0.6,  sus:0.85, r:1.1, fe:0,   len:8, sub:0, center:60 },
   keys:{ name:'E-Piano', wave:'square',   det:3,  cut:2400, a:0.004, d:0.35, sus:0.3,  r:0.3, fe:1.2, len:2, sub:0, center:60 },
   nesp:{ name:'NES Pulse',    wave:'pulse25', det:0, cut:9000, a:0.001, d:0.12, sus:0.75, r:0.04, fe:0, len:1, sub:0, center:66 },
-  stab:{ name:'Stab', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.22, r:0.12, fe:2.2, len:1, sub:0, center:60 }
+  stab:{ name:'Saw Chord', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.22, r:0.12, fe:2.2, len:1, sub:0, center:60 }
 };
 const PLO = 24, PHI = 72, NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const noteName = p => NAMES[p%12] + (Math.floor(p/12)-1);
@@ -979,6 +979,7 @@ function chordPads(y){
       e.preventDefault();
       if (y.padEdit){ editPad(y,i); return; }
       if (!y.pads[i]) return;
+      y.lastPad = i;
       initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.95));
       held.set(e.pointerId,{ rel:tt => rels.forEach(r => r(tt)), el:b }); b.classList.add('down');
     };
@@ -986,7 +987,7 @@ function chordPads(y){
   }
   const row = h('div','padrow'), wh = h('div','wheels');
   wh.append(wheel('Pitch',0,true,v => setBend(y,v)),wheel('Mod',y.mod || 0,false,v => setMod(y,v)));
-  row.append(grid,wh); wrap.append(ctl,row); return wrap;
+  row.append(grid,wh); wrap.append(ctl,patRow(y),row); return wrap;
 }
 
 /* ---------- instrument names / colours ---------- */
@@ -1058,6 +1059,45 @@ function openSecPicker(){
   box.append(h('b',null,'Go to section'),h('span','dim','Yellow = editing · red outline = playing'),g,cb); ov.append(box); document.body.append(ov);
 }
 $('#newSong').onclick = newSongFlow; $('#navLbl').onclick = openSecPicker;
+
+/* ---------- Easy Chord patterns ---------- */
+const PATS = [['stab','Stab / Block'],['pump','Pump'],['oompah','Oom-pah'],['broken','Broken'],['picking','Picking'],['arp','Arpeggio'],['rarp','Random Arp']];
+function newRSeq(){ return Array.from({ length:16 }, () => Math.random() < 0.15 ? -1 : Math.floor(Math.random()*8)); }
+function chordEvents(y,i,L){
+  const c = y.pads && y.pads[i]; if (!c) return [];
+  const all = chordNotes(y,i).sort((a,b) => a-b), sh = 12*(y.coct || 0), base = 60 + c.r - (c.r >= 7 ? 12 : 0) + sh;
+  const tones = QI[c.q].map(x => base + x), low = (c.b >= 0 ? 36 + c.b : 36 + c.r) + sh;
+  const ev = [], add = (at,notes,len,v) => { if (at < L) ev.push({ at, notes, len:Math.max(0.5,Math.min(len,L-at)), v }); };
+  const pat = y.pat || 'stab', T = k => [tones[k % tones.length]];
+  if (pat === 'pump'){ for (let s=0;s<L;s+=2) add(s,all,1.5,s%4 === 0 ? 1 : 0.75); }
+  else if (pat === 'oompah'){ for (let s=0;s<L;s+=4){ if ((s/4)%2 === 0) add(s,[low],3,1); else add(s,tones,3,0.85); } }
+  else if (pat === 'broken'){ const q = ['L',0,1,2,1,2,1,0]; for (let k=0,s=0;s<L;k++,s+=2){ const x = q[k % q.length]; add(s,x === 'L' ? [low] : T(x),3,x === 'L' ? 1 : 0.8); } }
+  else if (pat === 'picking'){ const q = ['L',2,1,2,0,2,1,2]; for (let k=0,s=0;s<L;k++,s+=1){ const x = q[k % q.length]; add(s,x === 'L' ? [low] : T(x),3,x === 'L' ? 1 : 0.7); } }
+  else if (pat === 'arp' || pat === 'rarp'){
+    const step = +(y.arate || 1), dir = y.adir || 'up'; let seq = all.slice();
+    if (dir === 'down') seq.reverse(); else if (dir === 'ud') seq = seq.concat(all.slice(1,-1).reverse());
+    if (pat === 'rarp'){ if (!y.rseq) y.rseq = newRSeq(); for (let k=0,s=0;s<L;k++,s+=step){ const x = y.rseq[k % y.rseq.length]; if (x >= 0) add(s,[all[x % all.length]],step*0.95,k%4 === 0 ? 1 : 0.75); } }
+    else for (let k=0,s=0;s<L;k++,s+=step) add(s,[seq[k % seq.length]],step*0.95,k%4 === 0 ? 1 : 0.8);
+  } else add(0,all,L,1);
+  return ev;
+}
+function selOf(opts,val,fn){ const s2 = document.createElement('select'); opts.forEach(([v,l]) => { const o = h('option',null,l); o.value = v; s2.append(o); }); s2.value = val; s2.onchange = () => fn(s2.value); return s2; }
+function previewPat(y){
+  initAudio(); const i = (y.lastPad != null && y.pads[y.lastPad]) ? y.lastPad : y.pads.findIndex(p => p); if (i < 0) return;
+  const t = ctx.currentTime + 0.05, sd = 60/S.bpm/4;
+  chordEvents(y,i,16).forEach(ev => ev.notes.forEach(q => synthNote(y,q,t+ev.at*sd,ev.len*sd*0.98,1.1*ev.v)));
+}
+function patRow(y){
+  const r = h('div','mh');
+  r.append(h('span','dim','Pattern'),selOf(PATS,y.pat || 'stab',v => { y.pat = v; render(); }));
+  if (y.pat === 'arp' || y.pat === 'rarp'){
+    r.append(h('span','dim','Rate'),selOf([[1,'1/16'],[2,'1/8'],[4,'1/4']],y.arate || 1,v => { y.arate = +v; }));
+    if (y.pat === 'arp') r.append(h('span','dim','Direction'),selOf([['up','Up'],['down','Down'],['ud','Up + Down']],y.adir || 'up',v => { y.adir = v; }));
+  }
+  if (y.pat === 'rarp'){ const d = h('button','sm','🎲 New random'); d.onclick = () => { y.rseq = newRSeq(); previewPat(y); toast('New random pattern (locked until you roll again)'); }; r.append(d); }
+  const pv2 = h('button','sm','▶ Preview'); pv2.onclick = () => previewPat(y); r.append(pv2);
+  return r;
+}
 
 /* ---------- wiring ---------- */
 function setBpm(v){ S.bpm = Math.min(240,Math.max(40,Math.round(v)||120)); $('#bpm').value = S.bpm; }
