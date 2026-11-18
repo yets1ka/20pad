@@ -119,6 +119,7 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 .secb.now{box-shadow:inset 0 0 0 3px var(--hot)}
 .pad.col{background:var(--pc);color:#1a1a1f}
 .pad.col.down{background:var(--acc)}
+.pad{display:flex;align-items:flex-start;justify-content:flex-start;text-align:left;padding:8px 10px}
 #err{display:none;position:fixed;left:8px;right:8px;bottom:96px;background:#400014;border:1px solid var(--hot);border-radius:8px;padding:10px;color:#fff;font-size:12px;z-index:9;-webkit-user-select:text;user-select:text}
 </style>
 </head>
@@ -147,7 +148,7 @@ input[type=number]{-webkit-user-select:text;user-select:text}
 /* ZOundPad n0u
    Engine: lookahead scheduler (audio clock), per-machine channel strip -> master -> compressor.
    Drum voices are synthesized here (no samples, no third-party code). */
-const VERSION = 'v1.15';
+const VERSION = 'v1.18';
 const $ = s => document.querySelector(s);
 function showErr(m){ const b = $('#err'); b.textContent = '⚠ ' + m; b.style.display = 'block'; }
 window.addEventListener('error', e => showErr(e.message + ' (line ' + (e.lineno||'?') + ')'));
@@ -537,7 +538,7 @@ const PRE = {
   pad: { name:'Pad',  wave:'sawtooth', det:14, cut:1500, a:0.45,  d:0.6,  sus:0.85, r:1.1, fe:0,   len:8, sub:0, center:60 },
   keys:{ name:'E-Piano', wave:'square',   det:3,  cut:2400, a:0.004, d:0.35, sus:0.3,  r:0.3, fe:1.2, len:2, sub:0, center:60 },
   nesp:{ name:'NES Pulse',    wave:'pulse25', det:0, cut:9000, a:0.001, d:0.12, sus:0.75, r:0.04, fe:0, len:1, sub:0, center:66 },
-  stab:{ name:'Saw Chord', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.22, r:0.12, fe:2.2, len:1, sub:0, center:60 }
+  stab:{ name:'Chord Play', wave:'sawtooth', det:8, cut:2600, a:0.003, d:0.18, sus:0.22, r:0.12, fe:2.2, len:1, sub:0, center:60 }
 };
 const PLO = 24, PHI = 72, NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 const noteName = p => NAMES[p%12] + (Math.floor(p/12)-1);
@@ -616,7 +617,7 @@ function rollTap(y,p,i){
   commit();
   if (ix >= 0){ const n = notes[ix]; if (!n.a) n.a = 1; else notes.splice(ix,1); }
   else {
-    const l = Math.min(y.len,STEPS-i);
+    const l = Math.min(y.len === 0 ? natLen(y) : y.len,STEPS-i);
     for (let j=notes.length-1;j>=0;j--){ const n = notes[j]; if ((y.kind === 'chord' || n.p===p) && n.s<i+Math.max(1,Math.ceil(l)) && n.s+ext(n)>i) notes.splice(j,1); }
     notes.push({ s:i, p, l, a:0 });
     pv(y,p,0.25);
@@ -631,7 +632,7 @@ function synthPanel(rack,y){
   const tg = h('button','sm vis',y.showRoll ? (y.kind === 'chord' ? 'Hide grid' : 'Hide roll') : (y.kind === 'chord' ? 'Show grid' : 'Show roll')); tg.onclick = () => { y.showRoll = !y.showRoll; render(); };
   const ps = document.createElement('select');
   Object.keys(PRE).forEach(k => { const o = h('option',null,PRE[k].name); o.value = k; ps.append(o); }); ps.value = y.preset;
-  ps.onchange = () => { Object.assign(y,PRE[ps.value],{ preset:ps.value }); render(); };
+  ps.onchange = () => { const keep = y.len; Object.assign(y,PRE[ps.value],{ preset:ps.value }); if (y.kind === 'chord') y.len = keep; render(); };
   const ws = document.createElement('select');
   ['sawtooth','square','triangle','sine','pulse12','pulse25','pulse50','pulse75','nesTri','noise','noiseS'].forEach(w => { const o = h('option',null,w); o.value = w; ws.append(o); }); ws.value = y.wave; ws.onchange = () => { y.wave = ws.value; };
   const mute = h('button','sm' + (y.mute?' red':''),'Mute');
@@ -650,8 +651,8 @@ function synthPanel(rack,y){
   if (y.showRoll){
     const lens = h('div','inline'), lr = h('div','mh'), btns = [];
     const cust = document.createElement('input'); cust.type = 'number'; cust.min = 1; cust.max = 16; cust.step = 1; cust.inputMode = 'numeric'; cust.placeholder = '3–15'; cust.style.width = '74px';
-    const mark = () => { btns.forEach(([b,L]) => b.classList.toggle('sel',L===y.len)); cust.value = [1,2,4,8,16].includes(y.len) ? '' : y.len; };
-    [[1,'1'],[2,'2'],[4,'4'],[8,'8'],[16,'16']].forEach(([L,lab]) => {
+    const mark = () => { btns.forEach(([b,L]) => b.classList.toggle('sel',L===y.len)); cust.value = [0,1,2,4,8,16].includes(y.len) ? '' : y.len; };
+    (y.kind === 'chord' ? [[0,'Auto']] : []).concat([[1,'1'],[2,'2'],[4,'4'],[8,'8'],[16,'16']]).forEach(([L,lab]) => {
       const b = h('button','sm',lab); b.onclick = () => { y.len = L; mark(); }; lens.append(b); btns.push([b,L]);
     });
     cust.onchange = () => { const v = Math.round(parseFloat(cust.value)); if (v >= 1 && v <= 16) y.len = v; mark(); };
@@ -944,7 +945,7 @@ function fillKey(y){
 }
 function addChord(){
   const y = addSynth('stab'); S.count.stab--; y.n = (S.count.chord = (S.count.chord || 0) + 1);
-  y.kind = 'chord'; y.name = 'Easy Chord'; y.key = 0; y.mode = 'maj'; y.coct = 0; y.pads = new Array(16).fill(null); fillKey(y); y.vol = 1; if (y.out) setGain(y.out,1);
+  y.kind = 'chord'; y.name = 'Easy Chord'; y.key = 0; y.mode = 'maj'; y.coct = 0; y.pads = new Array(16).fill(null); fillKey(y); y.vol = 1; if (y.out) setGain(y.out,1); y.len = 0;
   return y;
 }
 function editPad(y,i){
@@ -980,8 +981,10 @@ function chordPads(y){
       if (y.padEdit){ editPad(y,i); return; }
       if (!y.pads[i]) return;
       y.lastPad = i;
-      initAudio(); const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.95));
-      held.set(e.pointerId,{ rel:tt => rels.forEach(r => r(tt)), el:b }); b.classList.add('down');
+      initAudio();
+      if ((y.pat || 'stab') !== 'stab') held.set(e.pointerId,{ rel:livePat(y,i), el:b });
+      else { const rels = chordNotes(y,i).map(p => voiceOn(y,p,ctx.currentTime,0.95)); held.set(e.pointerId,{ rel:tt => rels.forEach(r => r(tt)), el:b }); }
+      b.classList.add('down');
     };
     grid.append(b);
   }
@@ -1034,7 +1037,7 @@ function wheel(label,init,spring,fn){
 
 /* ---------- new song / section picker ---------- */
 const PREV_KEY = 'n0u.prev';
-const PASTELS = ['#ffb3ba','#ffd1b3','#ffe9b3','#fdfdb3','#e0f5b3','#baf5b3','#b3f5d6','#b3f5f0','#b3e5ff','#b3c6ff','#c9b3ff','#e6b3ff','#ffb3f0','#ffb3d1','#d9d9d9','#f5f0e6'];
+const PASTELS = ['#ffb3ba','#ffd1b3','#ffe9b3','#fdfdb3','#e0f5b3','#baf5b3','#b3f5d6','#b3f5f0','#b3e5ff','#b3c6ff','#c9b3ff','#e6b3ff','#ffb3f0','#ffb3d1','#d9d9d9','#f5f0e6','#ff8a8a','#ffa96b','#ffd16b','#f2f26b','#bce36b','#7fe36b','#6be3b0','#6be3df','#6bc7ff','#6b8cff','#a46bff','#d46bff','#ff6bdf','#ff6b9e','#9a9a9a','#e8c9a0'];
 function newSongFlow(){
   const fresh = () => {
     jSet(PREV_KEY,[autoData()]);
@@ -1061,25 +1064,57 @@ function openSecPicker(){
 $('#newSong').onclick = newSongFlow; $('#navLbl').onclick = openSecPicker;
 
 /* ---------- Easy Chord patterns ---------- */
-const PATS = [['stab','Stab / Block'],['pump','Pump'],['oompah','Oom-pah'],['broken','Broken'],['picking','Picking'],['arp','Arpeggio'],['rarp','Random Arp']];
+const PATS = [['stab','Stab'],['pump','Pump'],['oompah','Oom-pah'],['broken','Broken'],['accomp','Accomp'],['rocking','Rocking'],['picking','Picking'],['arp','Arpeggio'],['rarp','Random Arp']];
+const natLen = y => (y.pat || 'stab') === 'stab' ? 4 : 16;
 function newRSeq(){ return Array.from({ length:16 }, () => Math.random() < 0.15 ? -1 : Math.floor(Math.random()*8)); }
+const RDEF = { pump:2, oompah:4, broken:2, accomp:4, rocking:4, picking:2, arp:1, rarp:1 };
+function rateOf(y,p){
+  const isArp = p === 'arp' || p === 'rarp';
+  let v = +((y.rates && y.rates[p]) || (isArp && y.arate) || (p === 'broken' && y.brate) || RDEF[p] || 4);
+  if (!isArp && v < 2) v = RDEF[p] || 4; /* 1/16 is only for the arpeggios */
+  return v;
+}
 function chordEvents(y,i,L){
   const c = y.pads && y.pads[i]; if (!c) return [];
   const all = chordNotes(y,i).sort((a,b) => a-b), sh = 12*(y.coct || 0), base = 60 + c.r - (c.r >= 7 ? 12 : 0) + sh;
-  const tones = QI[c.q].map(x => base + x), low = (c.b >= 0 ? 36 + c.b : 36 + c.r) + sh;
+  const tones = QI[c.q].map(x => base + x), pc = c.b >= 0 ? c.b : c.r;
   const ev = [], add = (at,notes,len,v) => { if (at < L) ev.push({ at, notes, len:Math.max(0.5,Math.min(len,L-at)), v }); };
-  const pat = y.pat || 'stab', T = k => [tones[k % tones.length]];
-  if (pat === 'pump'){ for (let s=0;s<L;s+=2) add(s,all,1.5,s%4 === 0 ? 1 : 0.75); }
-  else if (pat === 'oompah'){ for (let s=0;s<L;s+=4){ if ((s/4)%2 === 0) add(s,[low],3,1); else add(s,tones,3,0.85); } }
-  else if (pat === 'broken'){ const q = ['L',0,1,2,1,2,1,0]; for (let k=0,s=0;s<L;k++,s+=2){ const x = q[k % q.length]; add(s,x === 'L' ? [low] : T(x),3,x === 'L' ? 1 : 0.8); } }
-  else if (pat === 'picking'){ const q = ['L',2,1,2,0,2,1,2]; for (let k=0,s=0;s<L;k++,s+=1){ const x = q[k % q.length]; add(s,x === 'L' ? [low] : T(x),3,x === 'L' ? 1 : 0.7); } }
+  const pat = y.pat || 'stab', st = rateOf(y,pat);
+  if (pat === 'pump'){ for (let s=0;s<L;s+=st) add(s,all,st*0.75,s%4 === 0 ? 1 : 0.75); }
+  else if (pat === 'oompah'){ const low = 36 + pc + sh; for (let s=0,k=0;s<L;s+=st,k++){ if (k%2 === 0) add(s,[low],st*0.75,1); else add(s,tones,st*0.75,0.85); } }
+  else if (pat === 'broken'){
+    const q = tones.length >= 4 ? [0,1,2,3] : [0,1,2,1], lh = 36 + pc + sh;
+    for (let k=0,s=0;s<L;k++,s+=st){ const t = tones[q[k % q.length] % tones.length]; add(s,k%4 === 0 ? [t,lh,lh+12] : [t],st,k%4 === 0 ? 1 : 0.8); }
+  }
+  else if (pat === 'accomp'){
+    const m = tones.length >= 4 ? tones.slice(1,4) : tones.slice(0,3);
+    for (let c0=0;c0<L;c0+=4*st){ add(c0,all,st,1); m.forEach((n,k) => add(c0+st*(k+1),[n],st,0.8)); }
+  }
+  else if (pat === 'rocking'){ const up = tones.slice(1), lowN = c.b >= 0 ? tones[0] - 1 - ((((tones[0] - 1) % 12) - c.b + 12) % 12) : tones[0]; for (let s=0,k=0;s<L;s+=st,k++){ if (k%2 === 0) add(s,up,st,1); else add(s,[lowN],st,0.9); } }
+  else if (pat === 'picking'){
+    const g = tones.slice(-3), gb = 40 + (((pc - 4) % 12) + 12) % 12 + sh, m = { 3:g[0], 2:g[1], 1:g[2] }, q = ['B',3,2,3,1,3,2,3];
+    for (let k=0,s=0;s<L;k++,s+=st){ const x = q[k % q.length]; add(s,[x === 'B' ? gb : m[x]],st*1.5,x === 'B' ? 1 : 0.7); }
+  }
   else if (pat === 'arp' || pat === 'rarp'){
-    const step = +(y.arate || 1), dir = y.adir || 'up'; let seq = all.slice();
+    const dir = y.adir || 'up'; let seq = all.slice();
     if (dir === 'down') seq.reverse(); else if (dir === 'ud') seq = seq.concat(all.slice(1,-1).reverse());
-    if (pat === 'rarp'){ if (!y.rseq) y.rseq = newRSeq(); for (let k=0,s=0;s<L;k++,s+=step){ const x = y.rseq[k % y.rseq.length]; if (x >= 0) add(s,[all[x % all.length]],step*0.95,k%4 === 0 ? 1 : 0.75); } }
-    else for (let k=0,s=0;s<L;k++,s+=step) add(s,[seq[k % seq.length]],step*0.95,k%4 === 0 ? 1 : 0.8);
+    if (pat === 'rarp'){ if (!y.rseq) y.rseq = newRSeq(); for (let k=0,s=0;s<L;k++,s+=st){ const x = y.rseq[k % y.rseq.length]; if (x >= 0) add(s,[all[x % all.length]],st*0.95,k%4 === 0 ? 1 : 0.75); } }
+    else for (let k=0,s=0;s<L;k++,s+=st) add(s,[seq[k % seq.length]],st*0.95,k%4 === 0 ? 1 : 0.8);
   } else add(0,all,L,1);
   return ev;
+}
+function livePat(y,i){
+  const evs = chordEvents(y,i,16); if (!evs.length) return () => {};
+  const sd = () => 60/S.bpm/4, t0 = ctx.currentTime + 0.02; let k = 0, cyc = 0;
+  const tick = () => {
+    const now = ctx.currentTime;
+    for (;;){
+      const ev = evs[k], at = t0 + (cyc*16 + ev.at)*sd(); if (at > now + 0.15) break;
+      ev.notes.forEach(q => synthNote(y,q,Math.max(at,now),ev.len*sd()*0.98,1.1*ev.v));
+      if (++k >= evs.length){ k = 0; cyc++; }
+    }
+  };
+  const id = setInterval(tick,25); tick(); return () => clearInterval(id);
 }
 function selOf(opts,val,fn){ const s2 = document.createElement('select'); opts.forEach(([v,l]) => { const o = h('option',null,l); o.value = v; s2.append(o); }); s2.value = val; s2.onchange = () => fn(s2.value); return s2; }
 function previewPat(y){
@@ -1088,13 +1123,11 @@ function previewPat(y){
   chordEvents(y,i,16).forEach(ev => ev.notes.forEach(q => synthNote(y,q,t+ev.at*sd,ev.len*sd*0.98,1.1*ev.v)));
 }
 function patRow(y){
-  const r = h('div','mh');
-  r.append(h('span','dim','Pattern'),selOf(PATS,y.pat || 'stab',v => { y.pat = v; render(); }));
-  if (y.pat === 'arp' || y.pat === 'rarp'){
-    r.append(h('span','dim','Rate'),selOf([[1,'1/16'],[2,'1/8'],[4,'1/4']],y.arate || 1,v => { y.arate = +v; }));
-    if (y.pat === 'arp') r.append(h('span','dim','Direction'),selOf([['up','Up'],['down','Down'],['ud','Up + Down']],y.adir || 'up',v => { y.adir = v; }));
-  }
-  if (y.pat === 'rarp'){ const d = h('button','sm','🎲 New random'); d.onclick = () => { y.rseq = newRSeq(); previewPat(y); toast('New random pattern (locked until you roll again)'); }; r.append(d); }
+  const r = h('div','mh'), p = y.pat || 'stab';
+  r.append(h('span','dim','Pattern'),selOf(PATS,p,v => { y.pat = v; render(); }));
+  if (p !== 'stab') r.append(h('span','dim','Rate'),selOf((p === 'arp' || p === 'rarp') ? [[4,'1/4'],[2,'1/8'],[1,'1/16']] : [[4,'1/4'],[2,'1/8']],rateOf(y,p),v => { y.rates = y.rates || {}; y.rates[p] = +v; }));
+  if (p === 'arp') r.append(h('span','dim','Direction'),selOf([['up','Up'],['down','Down'],['ud','Up + Down']],y.adir || 'up',v => { y.adir = v; }));
+  if (p === 'rarp'){ const d = h('button','sm','🎲 New random'); d.onclick = () => { y.rseq = newRSeq(); previewPat(y); toast('New random pattern (locked until you roll again)'); }; r.append(d); }
   const pv2 = h('button','sm','▶ Preview'); pv2.onclick = () => previewPat(y); r.append(pv2);
   return r;
 }
